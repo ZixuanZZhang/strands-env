@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "strands-sglang @ git+https://github.com/horizon-rl/strands-sglang.git@main",
+    "strands-agents-tools",
 ]
 
 [project.optional-dependencies]
