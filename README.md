@@ -44,7 +44,7 @@ pip install strands-env
 For development:
 
 ```bash
-git clone <repo-url> && cd strands-env
+git clone https://github.com/horizon-rl/strands-env.git && cd strands-env
 pip install -e ".[dev]"
 ```
 
