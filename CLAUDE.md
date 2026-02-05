@@ -40,7 +40,7 @@ pytest tests/integration/ -v --sglang-base-url=http://localhost:30000
 
 ```bash
 # 1. Launch SGLang on the remote server in docker
-ssh <remote-host> "sudo docker run -d --gpus '\"device=0\"' --name sglang-test -p 30000:30000 --ipc=host lmsysorg/sglang:<tag> python3 -m sglang.launch_server --model-path <model-id> --host 0.0.0.0 --port 30000 --tp <num_gpus> --mem-fraction-static 0.7"
+ssh <remote-host> "sudo docker run -d --gpus all --name sglang-test -p 30000:30000 --ipc=host lmsysorg/sglang:<tag> python3 -m sglang.launch_server --model-path <model-id> --host 0.0.0.0 --port 30000 --tp <num_gpus> --mem-fraction-static 0.7"
 # 2. Tunnel the port locally
 ssh -L 30000:localhost:30000 -N -f <remote-host>
 # 3. Run tests locally
