@@ -38,6 +38,8 @@ from strands_env.environments.simple_math_env import SimpleMathEnv
 from strands_env.eval import AIMEEvaluator
 from strands_env.rewards.math_reward import MathRewardFunction
 
+SAMPLING_PARAMS = {"max_new_tokens": 16384, "temperature": 0.7, "top_p": 0.95}
+
 # ---------------------------------------------------------------------------
 # Model factory helpers
 # ---------------------------------------------------------------------------
@@ -69,7 +71,7 @@ def _create_sglang_factory(model_id: str | None, sglang_base_url: str) -> ModelF
         model_id=model_id,
         tokenizer=tokenizer,
         client=client,
-        sampling_params={"max_new_tokens": 16384, "temperature": 0.7, "top_p": 0.95, "top_k": 20},
+        sampling_params=SAMPLING_PARAMS,
     )
 
 
@@ -78,7 +80,11 @@ def _create_bedrock_factory(model_id: str | None) -> ModelFactory:
 
     model_id = model_id or "us.anthropic.claude-sonnet-4-20250514"
     click.echo(f"Using Bedrock model: {model_id}")
-    return bedrock_model_factory(model_id=model_id, boto_session=boto3.Session())
+    return bedrock_model_factory(
+        model_id=model_id,
+        boto_session=boto3.Session(),
+        sampling_params=SAMPLING_PARAMS,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -104,10 +110,8 @@ def main(
     output: str,
 ) -> None:
     """Run pass@k evaluation on AIME math problems."""
-    # Suppress strands library logging (can print model output during exceptions)
-    # Keep strands_env logger at INFO for progress logging
+    # Suppress noisy library logging, keep strands_env at INFO for progress
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    logging.getLogger("strands").setLevel(logging.CRITICAL)
     logging.getLogger("strands_env").setLevel(logging.INFO)
 
     asyncio.run(

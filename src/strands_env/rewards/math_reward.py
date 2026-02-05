@@ -24,15 +24,23 @@ from __future__ import annotations
 import logging
 
 from math_verify import ExprExtractionConfig, LatexExtractionConfig, parse, verify
+from math_verify.errors import TimeoutException as MathVerifyTimeout
 
 from strands_env.core.types import Action, RewardFunction, RewardResult, StepResult
 
 logger = logging.getLogger(__name__)
 
+# Suppress math_verify's noisy "Timeout during parsing" warnings
+logging.getLogger("math_verify").setLevel(logging.ERROR)
+
 # Use both LaTeX and expression extraction (math-verify's recommended default).
 # LatexExtractionConfig handles \boxed{}, $...$, etc.
 # ExprExtractionConfig handles plain "4", "0.5", "-3", etc.
 _EXTRACTION_CONFIG = (LatexExtractionConfig(), ExprExtractionConfig())
+
+# math_verify.TimeoutException inherits from BaseException (not Exception),
+# so we need to catch both to handle all math_verify errors.
+_MATH_VERIFY_ERRORS = (Exception, MathVerifyTimeout)
 
 
 class MathRewardFunction(RewardFunction):
@@ -52,12 +60,33 @@ class MathRewardFunction(RewardFunction):
 
     Args:
         float_rounding: Decimal places for float comparison (default 6).
-        timeout_seconds: Max seconds for SymPy simplification per comparison (default 5).
+        parse_timeout: Max seconds for parsing expressions from text (default 5).
+        verify_timeout: Max seconds for SymPy simplification per comparison (default 5).
+        answer_tail_chars: Only parse the last N chars of model response (default 500).
+            Set to 0 to parse full response. The final ``\\boxed{}`` answer is typically
+            at the end, so this avoids parsing long chain-of-thought reasoning.
     """
 
-    def __init__(self, float_rounding: int = 6, timeout_seconds: int = 5) -> None:
+    def __init__(
+        self,
+        float_rounding: int = 6,
+        parse_timeout: int = 5,
+        verify_timeout: int = 5,
+        answer_tail_chars: int = 500,
+    ) -> None:
         self.float_rounding = float_rounding
-        self.timeout_seconds = timeout_seconds
+        self.parse_timeout = parse_timeout
+        self.verify_timeout = verify_timeout
+        self.answer_tail_chars = answer_tail_chars
+
+    def _parse(self, text: str) -> list:
+        """Parse text into math expressions. Raises on error or timeout."""
+        return parse(
+            text,
+            extraction_config=_EXTRACTION_CONFIG,
+            parsing_timeout=self.parse_timeout,
+            raise_on_error=True,
+        )
 
     async def compute(self, action: Action, step_result: StepResult) -> RewardResult:
         ground_truth = action.task_context.ground_truth
@@ -68,18 +97,30 @@ class MathRewardFunction(RewardFunction):
         if content is None:
             return RewardResult(reward=0.0, info={"reason": "no_final_response"})
 
-        gold = parse(ground_truth, extraction_config=_EXTRACTION_CONFIG)
+        # Parse ground truth
+        try:
+            gold = self._parse(ground_truth)
+        except _MATH_VERIFY_ERRORS as e:
+            logger.error(f"Failed to parse ground truth: {type(e).__name__}: {ground_truth[:100]}")
+            return RewardResult(reward=0.0, info={"reason": "gold_parse_failed", "ground_truth": ground_truth})
         if not gold:
             return RewardResult(reward=0.0, info={"reason": "gold_parse_failed", "ground_truth": ground_truth})
 
-        answer = parse(content, extraction_config=_EXTRACTION_CONFIG)
+        # Parse model answer (only tail to avoid parsing long chain-of-thought)
+        answer_text = content[-self.answer_tail_chars :] if self.answer_tail_chars else content
+        try:
+            answer = self._parse(answer_text)
+        except _MATH_VERIFY_ERRORS as e:
+            logger.error(f"Failed to parse answer: {type(e).__name__}: {answer_text[:100]}...")
+            return RewardResult(reward=0.0, info={"reason": "answer_parse_failed", "response": content})
         if not answer:
             return RewardResult(reward=0.0, info={"reason": "answer_parse_failed", "response": content})
 
+        # Verify equivalence
         try:
-            matched = verify(gold, answer, float_rounding=self.float_rounding, timeout_seconds=self.timeout_seconds)
-        except Exception as e:
-            logger.error(f"math-verify failed: {e} (gold={gold}, answer={answer})")
+            matched = verify(gold, answer, float_rounding=self.float_rounding, timeout_seconds=self.verify_timeout)
+        except _MATH_VERIFY_ERRORS as e:
+            logger.error(f"Failed to verify: {type(e).__name__}")
             matched = False
 
         return RewardResult(
