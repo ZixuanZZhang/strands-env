@@ -24,10 +24,10 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import logging
 
+import click
 import httpx
 
 from strands_env.core.models import ModelFactory, bedrock_model_factory, sglang_model_factory
@@ -49,37 +49,36 @@ MATH_PROBLEMS = [
 # ---------------------------------------------------------------------------
 
 
-def create_model_factory(args: argparse.Namespace) -> ModelFactory:
-    if args.backend == "sglang":
-        return _create_sglang_factory(args)
-    elif args.backend == "bedrock":
-        return _create_bedrock_factory(args)
+def create_model_factory(backend: str, model_id: str | None, sglang_base_url: str) -> ModelFactory:
+    if backend == "sglang":
+        return _create_sglang_factory(model_id, sglang_base_url)
+    elif backend == "bedrock":
+        return _create_bedrock_factory(model_id)
     else:
-        raise ValueError(f"Unknown backend: {args.backend}")
+        raise ValueError(f"Unknown backend: {backend}")
 
 
-def _create_sglang_factory(args: argparse.Namespace) -> ModelFactory:
+def _create_sglang_factory(model_id: str | None, sglang_base_url: str) -> ModelFactory:
     from strands_sglang import SGLangClient
     from transformers import AutoTokenizer
 
-    base_url = args.sglang_base_url.rstrip("/")
-    model_id = args.model_id
+    base_url = sglang_base_url.rstrip("/")
     if model_id is None:
         resp = httpx.get(f"{base_url}/get_model_info", timeout=10)
         resp.raise_for_status()
         model_id = resp.json()["model_path"]
-        print(f"Auto-detected model: {model_id}")
+        click.echo(f"Auto-detected model: {model_id}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     client = SGLangClient(base_url)
     return sglang_model_factory(model_id=model_id, tokenizer=tokenizer, client=client)
 
 
-def _create_bedrock_factory(args: argparse.Namespace) -> ModelFactory:
+def _create_bedrock_factory(model_id: str | None) -> ModelFactory:
     import boto3
 
-    model_id = args.model_id or "us.anthropic.claude-sonnet-4-20250514"
-    print(f"Using Bedrock model: {model_id}")
+    model_id = model_id or "us.anthropic.claude-sonnet-4-20250514"
+    click.echo(f"Using Bedrock model: {model_id}")
     return bedrock_model_factory(model_id=model_id, boto_session=boto3.Session())
 
 
@@ -88,32 +87,35 @@ def _create_bedrock_factory(args: argparse.Namespace) -> ModelFactory:
 # ---------------------------------------------------------------------------
 
 
-async def main() -> None:
-    parser = argparse.ArgumentParser(description="Math environment example")
-    parser.add_argument("--backend", required=True, choices=["sglang", "bedrock"], help="Model backend")
-    parser.add_argument("--model-id", default=None, help="Model ID (auto-detected for SGLang)")
-    parser.add_argument("--sglang-base-url", default="http://localhost:30000", help="SGLang server URL")
-    parser.add_argument("--verbose", action="store_true", help="Print agent callback output")
-    args = parser.parse_args()
+@click.command()
+@click.option("--backend", required=True, type=click.Choice(["sglang", "bedrock"]), help="Model backend")
+@click.option("--model-id", default=None, help="Model ID (auto-detected for SGLang)")
+@click.option("--sglang-base-url", default="http://localhost:30000", help="SGLang server URL")
+@click.option("--verbose", is_flag=True, help="Print agent callback output")
+def main(backend: str, model_id: str | None, sglang_base_url: str, verbose: bool) -> None:
+    """Run math problems through a Strands agent with a calculator tool."""
+    logging.basicConfig(level=logging.WARNING)
+    asyncio.run(run_math_env(backend, model_id, sglang_base_url, verbose))
 
-    model_factory = create_model_factory(args)
-    env = SimpleMathEnv(model_factory=model_factory, reward_fn=MathRewardFunction(), verbose=args.verbose)
+
+async def run_math_env(backend: str, model_id: str | None, sglang_base_url: str, verbose: bool) -> None:
+    model_factory = create_model_factory(backend, model_id, sglang_base_url)
+    env = SimpleMathEnv(model_factory=model_factory, reward_fn=MathRewardFunction(), verbose=verbose)
 
     for question, ground_truth in MATH_PROBLEMS:
-        print(f"\n{'=' * 60}")
-        print(f"Question: {question}")
-        print(f"Expected: {ground_truth}")
-        print("-" * 60)
+        click.echo(f"\n{'=' * 60}")
+        click.echo(f"Question: {question}")
+        click.echo(f"Expected: {ground_truth}")
+        click.echo("-" * 60)
 
         action = Action(message=question, task_context=TaskContext(ground_truth=ground_truth))
         result = await env.step(action)
 
-        print(f"Termination: {result.termination_reason.value}")
-        print(f"Response:    {result.observation.final_response}")
-        print(f"Reward:      {result.reward.reward if result.reward else None}")
-        print(f"Metrics:     {result.observation.metrics}")
+        click.echo(f"Termination: {result.termination_reason.value}")
+        click.echo(f"Response:    {result.observation.final_response}")
+        click.echo(f"Reward:      {result.reward.reward if result.reward else None}")
+        click.echo(f"Metrics:     {result.observation.metrics}")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARNING)
-    asyncio.run(main())
+    main()
