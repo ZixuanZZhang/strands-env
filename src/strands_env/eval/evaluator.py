@@ -25,6 +25,8 @@ from functools import partial
 from pathlib import Path
 
 from pydantic import BaseModel
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from strands_env.core import Action, Environment, StepResult
 
@@ -159,25 +161,23 @@ class Evaluator:
 
         semaphore = asyncio.Semaphore(self.max_concurrency)
         save_counter = 0
-        completed = 0
         total = len(to_process)
 
-        async def process(prompt_id: str, sample_id: str, action: Action) -> None:
-            nonlocal save_counter, completed
+        async def process(prompt_id: str, sample_id: str, action: Action, pbar: tqdm) -> None:
+            nonlocal save_counter
             async with semaphore:
                 sample = await self.evaluate_sample(action)
                 self.results[prompt_id].append(sample)
                 self.completed_ids.add(sample_id)
-                completed += 1
+                pbar.update(1)
                 save_counter += 1
                 if save_counter >= self.save_interval:
                     self.save_results()
-                    logger.info(f"Progress: {completed}/{total}")
                     save_counter = 0
 
-        await asyncio.gather(*[process(pid, sid, a) for pid, sid, a in to_process])
-
-        logger.info(f"Completed: {completed}/{total}")
+        with logging_redirect_tqdm():
+            with tqdm(total=total, desc=f"Evaluating {self.benchmark_name}", unit="sample", dynamic_ncols=True) as pbar:
+                await asyncio.gather(*[process(pid, sid, a, pbar) for pid, sid, a in to_process])
         self.save_results()
         return dict(self.results)
 
