@@ -23,18 +23,16 @@ classifiers = [
 dependencies = [
     "strands-sglang>=0.1.2",
     "strands-agents-tools",
+    "boto3>=1.26.0",
+    "datasets",
     "math-verify>=0.8.0",
     "click>=8.0.0",
     "tqdm>=4.0.0",
 ]
 
 [project.optional-dependencies]
-eval = [
-    "datasets",
-]
 dev = [
     # Testing
-    "datasets",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
