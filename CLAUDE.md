@@ -73,6 +73,10 @@ The package lives in `src/strands_env/` with these modules:
 
 **aws.py** — AWS boto3 session caching. `get_boto3_session(region, profile_name)` with `@lru_cache` (boto3 handles credential refresh). `get_assumed_role_session(role_arn, region)` uses `RefreshableCredentials` for programmatic role assumption with auto-refresh.
 
+### `tools/`
+
+**code_interpreter.py** — `CodeInterpreterToolkit` wraps AWS Bedrock AgentCore Code Interpreter. Provides `execute_code` (Python) and `execute_command` (shell) tools. Sessions are lazily created and can be cleaned up via `cleanup()`.
+
 ### Key Design Decisions
 
 - **Factory pattern**: `ModelFactory` returns lambdas (not Model instances) so each `step()` gets a fresh model with clean token tracking state.

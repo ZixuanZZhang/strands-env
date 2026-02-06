@@ -21,7 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`utils/aws.py`**: AWS boto3 session caching utilities.
   - `get_boto3_session(region, profile_name)` with `lru_cache`
   - `get_assumed_role_session(role_arn, region)` with `RefreshableCredentials` for auto-refresh
-- Added `boto3`, `datasets`, `tqdm` to main dependencies.
+- **`tools/code_interpreter.py`**: `CodeInterpreterToolkit` for AWS Bedrock AgentCore Code Interpreter.
+  - `execute_code` tool for running Python code
+  - `execute_command` tool for running shell commands
+- Added `boto3`, `bedrock-agentcore`, `datasets`, `tqdm` to main dependencies.
 
 ## [0.0.2] - 2026-02-03
 

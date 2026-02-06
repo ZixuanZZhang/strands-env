@@ -24,6 +24,7 @@ dependencies = [
     "strands-sglang>=0.1.2",
     "strands-agents-tools",
     "boto3>=1.26.0",
+    "bedrock-agentcore",
     "transformers>=4.0.0,<5.0.0",
     "datasets",
     "math-verify>=0.8.0",
