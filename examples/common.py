@@ -39,7 +39,7 @@ os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 DEFAULT_SGLANG_URL = "http://localhost:30000"
 
 # Default Bedrock model ID
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-20250514"
+DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
 # Sampling parameters
 DEFAULT_MAX_NEW_TOKENS = 16384
