@@ -17,10 +17,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from strands_sglang import SGLangClient
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizer
 
 _SGLANG_CLIENT_CONFIG = {
     "timeout": 900.0,
@@ -43,9 +46,46 @@ def get_cached_client_from_slime_args(args: Any) -> SGLangClient:
     return get_cached_client(base_url=base_url, max_connections=max_connections)
 
 
+@lru_cache(maxsize=None)
+def get_cached_tokenizer(tokenizer_path: str) -> PreTrainedTokenizer:
+    """Get a shared (cached) tokenizer.
+
+    Args:
+        tokenizer_path: Path or HuggingFace model ID for the tokenizer.
+
+    Returns:
+        Cached tokenizer instance.
+    """
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
+
+
 def clear_clients() -> None:
     """Clear all cached `SGLangClient` instances."""
     get_cached_client.cache_clear()
+
+
+def clear_tokenizers() -> None:
+    """Clear all cached tokenizer instances."""
+    get_cached_tokenizer.cache_clear()
+
+
+def check_server_health(base_url: str, timeout: float = 5.0) -> None:
+    """Check if the SGLang server is reachable.
+
+    Args:
+        base_url: Base URL of the SGLang server.
+        timeout: Request timeout in seconds.
+
+    Raises:
+        ConnectionError: If the server is not reachable.
+    """
+    try:
+        response = httpx.get(f"{base_url}/health", timeout=timeout)
+        response.raise_for_status()
+    except httpx.HTTPError as e:
+        raise ConnectionError(f"SGLang server at {base_url} is not reachable: {e}") from e
 
 
 def get_model_id(base_url: str) -> str:

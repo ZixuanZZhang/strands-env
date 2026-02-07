@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from strands_env.core import Action, Environment, Observation, RewardResult, StepResult, TaskContext
-from strands_env.eval import AIMEEvaluator, EvalSample, Evaluator
+from strands_env.eval import AIME2024Evaluator, EvalSample, Evaluator
 from strands_env.eval.metrics import pass_at_k_metric
 
 # ---------------------------------------------------------------------------
@@ -183,10 +183,12 @@ class TestCheckpoint:
         # Second run - s1 skipped, s2 processed
         mock_env.step.reset_mock()
         evaluator2 = Evaluator(env_factory=factory, output_path=output_path, save_interval=1)
-        results = await evaluator2.run([
-            Action(message="q1", task_context=TaskContext(id="s1")),
-            Action(message="q2", task_context=TaskContext(id="s2")),
-        ])
+        results = await evaluator2.run(
+            [
+                Action(message="q1", task_context=TaskContext(id="s1")),
+                Action(message="q2", task_context=TaskContext(id="s2")),
+            ]
+        )
 
         assert mock_env.step.await_count == 1  # Only s2 was processed
         assert len(results) == 2  # Both prompt_ids in results
@@ -291,10 +293,12 @@ class TestComputeMetrics:
         async def factory(action):
             env = MagicMock()
             env.reset = AsyncMock()
-            env.step = AsyncMock(return_value=StepResult(
-                observation=Observation(),
-                reward=RewardResult(reward=1.0),
-            ))
+            env.step = AsyncMock(
+                return_value=StepResult(
+                    observation=Observation(),
+                    reward=RewardResult(reward=1.0),
+                )
+            )
             env.cleanup = AsyncMock()
             return env
 
@@ -313,15 +317,19 @@ class TestComputeMetrics:
 # ---------------------------------------------------------------------------
 
 
-class TestAIMEEvaluator:
-    def test_benchmark_name(self):
+class TestAIME2024Evaluator:
+    @pytest.fixture
+    def mock_env_factory(self):
         async def factory(action):
             return MagicMock()
 
-        evaluator = AIMEEvaluator(env_factory=factory)
-        assert evaluator.benchmark_name == "AIME"
+        return factory
 
-    def test_load_dataset_mocked(self, mocker):
+    def test_benchmark_name(self, mock_env_factory):
+        evaluator = AIME2024Evaluator(env_factory=mock_env_factory)
+        assert evaluator.benchmark_name == "aime-2024"
+
+    def test_load_dataset_mocked(self, mock_env_factory, mocker):
         """load_dataset returns Action objects from HuggingFace dataset."""
         mock_dataset = [
             {"id": 1, "problem": "What is 1+1?", "answer": "2"},
@@ -329,18 +337,15 @@ class TestAIMEEvaluator:
         ]
         mocker.patch("strands_env.eval.aime.load_dataset", return_value=mock_dataset)
 
-        async def factory(action):
-            return MagicMock()
-
-        evaluator = AIMEEvaluator(env_factory=factory)
-        actions = list(evaluator.load_dataset("2024"))
+        evaluator = AIME2024Evaluator(env_factory=mock_env_factory)
+        actions = list(evaluator.load_dataset())
 
         assert len(actions) == 2
         assert actions[0].message == "What is 1+1?"
         assert actions[0].task_context.ground_truth == "2"
-        assert actions[0].task_context.id == "AIME_2024_1"
+        assert actions[0].task_context.id == "aime-2024_1"
 
-    def test_load_dataset_skips_missing_fields(self, mocker):
+    def test_load_dataset_skips_missing_fields(self, mock_env_factory, mocker):
         """Rows with missing problem/answer are skipped."""
         mock_dataset = [
             {"id": 1, "problem": "What is 1+1?", "answer": "2"},
@@ -349,27 +354,21 @@ class TestAIMEEvaluator:
         ]
         mocker.patch("strands_env.eval.aime.load_dataset", return_value=mock_dataset)
 
-        async def factory(action):
-            return MagicMock()
-
-        evaluator = AIMEEvaluator(env_factory=factory)
-        actions = list(evaluator.load_dataset("2024"))
+        evaluator = AIME2024Evaluator(env_factory=mock_env_factory)
+        actions = list(evaluator.load_dataset())
 
         assert len(actions) == 1
-        assert actions[0].task_context.id == "AIME_2024_1"
+        assert actions[0].task_context.id == "aime-2024_1"
 
-    def test_load_dataset_uses_index_for_missing_id(self, mocker):
+    def test_load_dataset_uses_index_for_missing_id(self, mock_env_factory, mocker):
         """Falls back to row index if id field is missing."""
         mock_dataset = [
             {"problem": "What is 1+1?", "answer": "2"},  # No id field
         ]
         mocker.patch("strands_env.eval.aime.load_dataset", return_value=mock_dataset)
 
-        async def factory(action):
-            return MagicMock()
-
-        evaluator = AIMEEvaluator(env_factory=factory)
-        actions = list(evaluator.load_dataset("2024"))
+        evaluator = AIME2024Evaluator(env_factory=mock_env_factory)
+        actions = list(evaluator.load_dataset())
 
         assert len(actions) == 1
-        assert actions[0].task_context.id == "AIME_2024_0"  # Uses index 0
+        assert actions[0].task_context.id == "aime-2024_0"  # Uses index 0

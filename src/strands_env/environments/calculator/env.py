@@ -17,6 +17,7 @@
 from pathlib import Path
 
 from strands_tools import calculator
+from typing_extensions import override
 
 from strands_env.core.environment import Environment
 
@@ -26,5 +27,6 @@ class CalculatorEnv(Environment):
 
     default_system_prompt_path = Path(__file__).parent / "system_prompt.md"
 
+    @override
     def get_tools(self):
         return [calculator]

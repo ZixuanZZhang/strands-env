@@ -59,17 +59,27 @@ The package lives in `src/strands_env/` with these modules:
 
 **environment.py** — Base `Environment` class. `step(action)` creates a fresh model via factory, attaches a `TokenManager`, builds an `Agent` with tools/hooks (always includes `ToolIterationLimiter`), runs `invoke_async`, then collects metrics and optional reward. Subclasses override `get_tools()` and `get_hooks()` to customize. Messages are sliced so only new messages from the current step appear in the observation.
 
+### `cli/`
+
+**__init__.py** — CLI entry point with `strands-env` command group. `list` shows registered benchmarks. `eval` runs benchmark evaluation with hook file.
+
+**config.py** — Configuration dataclasses: `SamplingConfig`, `ModelConfig`, `EnvConfig`, `EvalConfig`. Passed to hook files and factory builders.
+
+**utils.py** — `build_model_factory(config, max_concurrency)` creates SGLang or Bedrock model factories. `load_env_hook(path)` loads hook files. SGLang health check with clear error messages.
+
 ### `eval/`
 
 **evaluator.py** — `Evaluator` class orchestrates concurrent rollouts with checkpointing and pass@k metrics. Takes an async `env_factory` for flexible environment creation. Uses tqdm with `logging_redirect_tqdm` for clean progress output. Subclasses implement `load_dataset()` for different benchmarks.
 
+**registry.py** — Benchmark registry with `@register(name)` decorator. `get_benchmark(name)` and `list_benchmarks()` for discovery.
+
 **metrics.py** — `pass_at_k_metric` implements the unbiased pass@k estimator. `MetricFn` type alias for pluggable metrics.
 
-**aime.py** — `AIMEEvaluator` subclass for AIME benchmark evaluation.
+**aime.py** — `AIMEEvaluator` base class for AIME benchmarks. `AIME2024Evaluator` and `AIME2025Evaluator` registered as separate benchmarks with different dataset paths.
 
 ### `utils/`
 
-**sglang.py** — SGLang client caching with `@lru_cache`. `get_cached_client(base_url, max_connections)` for connection pooling. `get_cached_client_from_slime_args(args)` for slime RL training integration.
+**sglang.py** — SGLang client caching with `@lru_cache`. `get_cached_client(base_url, max_connections)` for connection pooling. `get_cached_client_from_slime_args(args)` for slime RL training integration. `check_server_health(base_url)` for early validation.
 
 **aws.py** — AWS boto3 session caching. `get_boto3_session(region, profile_name)` with `@lru_cache` (boto3 handles credential refresh). `get_assumed_role_session(role_arn, region)` uses `RefreshableCredentials` for programmatic role assumption with auto-refresh.
 

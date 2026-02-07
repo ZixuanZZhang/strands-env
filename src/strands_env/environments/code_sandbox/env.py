@@ -20,6 +20,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from strands_env.core.environment import Environment
 from strands_env.tools import CodeInterpreterToolkit
 from strands_env.utils.aws import get_boto3_session
@@ -100,6 +102,7 @@ class CodeSandboxEnv(Environment):
             boto3_session=boto3_session or get_boto3_session(), session_name="strands-env-code-sandbox"
         )
 
+    @override
     def get_tools(self):
         """Return tools based on configured mode."""
         tool_map = {
@@ -109,6 +112,7 @@ class CodeSandboxEnv(Environment):
         }
         return tool_map[self.mode]
 
+    @override
     async def cleanup(self) -> None:
         """Clean up code interpreter session."""
         self._toolkit.cleanup()

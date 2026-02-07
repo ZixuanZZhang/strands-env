@@ -1,0 +1,106 @@
+"""Unit tests for benchmark registry."""
+
+import pytest
+from click.testing import CliRunner
+
+from strands_env.cli import cli
+from strands_env.eval import Evaluator, get_benchmark, list_benchmarks
+from strands_env.eval.registry import _BENCHMARKS
+from strands_env.eval.registry import register as register_benchmark
+
+
+class TestBenchmarkRegistry:
+    def test_aime_registered(self):
+        """AIME benchmarks are registered by default."""
+        benchmarks = list_benchmarks()
+        assert "aime-2024" in benchmarks
+        assert "aime-2025" in benchmarks
+
+    def test_get_benchmark_returns_class(self):
+        """get_benchmark returns the evaluator class."""
+        cls = get_benchmark("aime-2024")
+        assert issubclass(cls, Evaluator)
+
+    def test_get_benchmark_unknown_raises(self):
+        """get_benchmark raises KeyError for unknown benchmark."""
+        with pytest.raises(KeyError, match="Unknown benchmark 'nonexistent'"):
+            get_benchmark("nonexistent")
+
+    def test_register_decorator(self):
+        """register decorator adds benchmark to registry."""
+        name = "_test_benchmark_decorator"
+
+        @register_benchmark(name)
+        class TestEvaluator(Evaluator):
+            pass
+
+        try:
+            assert name in list_benchmarks()
+            assert get_benchmark(name) is TestEvaluator
+        finally:
+            _BENCHMARKS.pop(name, None)
+
+    def test_register_duplicate_raises(self):
+        """Registering same name twice raises ValueError."""
+        name = "_test_duplicate_benchmark"
+
+        @register_benchmark(name)
+        class First(Evaluator):
+            pass
+
+        try:
+            with pytest.raises(ValueError, match=f"Benchmark '{name}' is already registered"):
+
+                @register_benchmark(name)
+                class Second(Evaluator):
+                    pass
+        finally:
+            _BENCHMARKS.pop(name, None)
+
+
+class TestListCommand:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_list_benchmarks(self, runner):
+        """List command shows registered benchmarks."""
+        result = runner.invoke(cli, ["list"])
+        assert result.exit_code == 0
+        assert "Benchmarks:" in result.output
+        assert "aime-2024" in result.output
+        assert "aime-2025" in result.output
+
+
+class TestEvalCommand:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_eval_requires_env(self, runner):
+        """Eval command requires --env option."""
+        result = runner.invoke(cli, ["eval", "aime-2024"])
+        assert result.exit_code != 0
+        assert "Missing option" in result.output or "--env" in result.output
+
+    def test_eval_unknown_benchmark(self, runner, tmp_path):
+        """Eval command fails for unknown benchmark."""
+        # Create a minimal hook file
+        hook_file = tmp_path / "test_env.py"
+        hook_file.write_text("""
+def create_env_factory(model_factory, env_config):
+    async def env_factory(action):
+        return None
+    return env_factory
+""")
+        result = runner.invoke(cli, ["eval", "nonexistent", "--env", str(hook_file)])
+        assert result.exit_code != 0
+        assert "Unknown benchmark" in result.output
+
+    def test_eval_invalid_hook_file(self, runner, tmp_path):
+        """Eval command fails if hook file doesn't export create_env_factory."""
+        hook_file = tmp_path / "bad_env.py"
+        hook_file.write_text("# No create_env_factory here")
+        result = runner.invoke(cli, ["eval", "aime-2024", "--env", str(hook_file)])
+        assert result.exit_code != 0
+        assert "create_env_factory" in result.output

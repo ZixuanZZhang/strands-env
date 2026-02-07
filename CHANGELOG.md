@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CLI** (`strands-env`)
+  - `strands-env list`: List registered benchmarks.
+  - `strands-env eval <benchmark> --env <hook_file>`: Run benchmark evaluation.
+  - Hook file pattern: Python files exporting `create_env_factory(model_factory, env_config)`.
+  - Support for `--backend sglang|bedrock`, `--profile`, `--role-arn`, and sampling options.
+  - SGLang server health check with clear error messages.
+- **Benchmark Registry**
+  - `@register(name)` decorator for registering benchmark evaluators.
+  - `get_benchmark(name)` and `list_benchmarks()` for discovery.
+  - `AIME2024Evaluator` and `AIME2025Evaluator` as separate registered benchmarks.
+- **Code Quality**
+  - `@override` decorator from `typing_extensions` for explicit method overrides.
+
+### Changed
+
+- Reorganized examples: removed `aime_eval.py` and `common.py`, added `calculator_demo.py`.
+- Hook files moved to `examples/envs/`.
+
 ## [0.1.1] - 2026-02-06
 
 ### Added
@@ -23,9 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `utils/aws.py`: AWS boto3 session caching with `RefreshableCredentials` for auto-refresh.
 - **Tools**
   - `CodeInterpreterToolkit`: `execute_code` and `execute_command` for sandboxed execution.
-- **Examples**
-  - `aime_eval.py`: Support `--env chat` and `--env code` modes with `--role-arn` option.
-  - `common.py`: Use cached SGLang client with connection pooling.
 
 ## [0.1.0] - 2026-02-03
 

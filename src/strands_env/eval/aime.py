@@ -12,37 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""AIME (American Invitational Mathematics Examination) evaluator."""
+"""AIME (American Invitational Mathematics Examination) benchmarks."""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from typing import Literal
 
 from datasets import load_dataset
+from typing_extensions import override
 
 from strands_env.core import Action, TaskContext
 
 from .evaluator import Evaluator
+from .registry import register
 
 logger = logging.getLogger(__name__)
 
-_AIME_DATASETS = {
-    "2024": "HuggingFaceH4/aime_2024",
-    "2025": "MathArena/aime_2025",
-}
-
 
 class AIMEEvaluator(Evaluator):
-    """Evaluator for AIME math competition problems."""
+    """Base evaluator for AIME math competition problems."""
 
-    benchmark_name = "AIME"
+    benchmark_name: str = "aime"
+    dataset_path: str = ""
 
-    def load_dataset(self, version: Literal["2024", "2025"] = "2024") -> Iterable[Action]:
-        """Load AIME dataset from HuggingFace."""
-        self.benchmark_name = f"{self.benchmark_name}_{version}"
-        dataset = load_dataset(_AIME_DATASETS[version], split="train")
+    @override
+    def load_dataset(self) -> Iterable[Action]:
+        """Load AIME dataset from HuggingFace.
+
+        Returns:
+            Iterable of Action objects with problem text and ground truth.
+        """
+        dataset = load_dataset(self.dataset_path, split="train")
 
         actions = []
         for i, row in enumerate(dataset):
@@ -62,3 +63,19 @@ class AIMEEvaluator(Evaluator):
 
         logger.info(f"[{self.benchmark_name}] Loaded {len(actions)}/{len(dataset)} prompts")
         return actions
+
+
+@register("aime-2024")
+class AIME2024Evaluator(AIMEEvaluator):
+    """AIME 2024 benchmark."""
+
+    benchmark_name = "aime-2024"
+    dataset_path = "HuggingFaceH4/aime_2024"
+
+
+@register("aime-2025")
+class AIME2025Evaluator(AIMEEvaluator):
+    """AIME 2025 benchmark."""
+
+    benchmark_name = "aime-2025"
+    dataset_path = "MathArena/aime_2025"

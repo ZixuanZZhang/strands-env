@@ -62,10 +62,10 @@ result.reward.reward                # 1.0
 result.termination_reason           # TerminationReason.TASK_COMPLETE
 ```
 
-See [`examples/math_env.py`](examples/math_env.py) for a complete example:
+See [`examples/calculator_demo.py`](examples/calculator_demo.py) for a complete example:
 
 ```bash
-python examples/math_env.py --backend sglang --sglang-base-url http://localhost:30000
+python examples/calculator_demo.py --backend sglang --base-url http://localhost:30000
 ```
 
 ## RL Training
@@ -116,38 +116,62 @@ Key points:
 
 ## Evaluation
 
-The `Evaluator` orchestrates concurrent rollouts with checkpointing and pass@k metrics. It takes an async `env_factory` for flexible environment creation per sample, and subclasses implement `load_dataset` for different benchmarks:
+### CLI
+
+The `strands-env` CLI provides commands for running benchmark evaluations:
+
+```bash
+# List available benchmarks
+strands-env list
+
+# Run AIME 2024 evaluation with SGLang
+strands-env eval aime-2024 --env examples/envs/calculator_env.py --backend sglang
+
+# Run with Bedrock
+strands-env eval aime-2024 --env examples/envs/code_sandbox_env.py --backend bedrock --model-id us.anthropic.claude-sonnet-4-20250514
+
+# With multiple samples for pass@k
+strands-env eval aime-2024 --env examples/envs/calculator_env.py --backend sglang --n-samples 8 --max-concurrency 30
+```
+
+### Hook Files
+
+Environment hook files define how environments are created. They export a `create_env_factory` function:
 
 ```python
-...
-from strands_env.eval import Evaluator
+# examples/envs/calculator_env.py
+from strands_env.cli.config import EnvConfig
+from strands_env.core.models import ModelFactory
+from strands_env.environments.calculator import CalculatorEnv
+from strands_env.rewards.math_reward import MathRewardFunction
 
-class YourEvaluator(Evaluator):
-    benchmark_name = "YourBenchmark"
+def create_env_factory(model_factory: ModelFactory, env_config: EnvConfig):
+    reward_fn = MathRewardFunction()
+
+    async def env_factory(_action):
+        return CalculatorEnv(
+            model_factory=model_factory,
+            reward_fn=reward_fn,
+            system_prompt=env_config.system_prompt,
+            max_tool_iterations=env_config.max_tool_iterations,
+        )
+
+    return env_factory
+```
+
+### Programmatic Usage
+
+For custom evaluators, subclass `Evaluator` and implement `load_dataset`:
+
+```python
+from strands_env.eval import Evaluator, register
+
+@register("my-benchmark")
+class MyEvaluator(Evaluator):
+    benchmark_name = "my-benchmark"
 
     def load_dataset(self) -> Iterable[Action]:
         ...
-
-async def env_factory(action: Action) -> Environment:
-    ...
-
-evaluator = YourEvaluator(
-    env_factory=env_factory,
-    n_samples_per_prompt=8,
-    max_concurrency=30,
-    keep_tokens=False, # Set True if requiring token-level trajectories (SGLang only)
-    metrics_fns=[...], # Define more metrics, pass@k has been included by default
-)
-
-actions = evaluator.load_dataset()
-results = await evaluator.run(actions)
-metrics = evaluator.compute_metrics(results)  # {"pass@1": 0.75, "pass@8": 0.95}
-```
-
-See [`examples/aime_eval.py`](examples/aime_eval.py) for a complete example:
-
-```bash
-python examples/aime_eval.py --backend sglang --sglang-base-url http://localhost:30000
 ```
 
 ## Development

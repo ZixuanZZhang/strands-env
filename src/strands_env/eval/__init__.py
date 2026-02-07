@@ -12,14 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .aime import AIMEEvaluator
-from .evaluator import EvalSample, Evaluator
+from .aime import AIME2024Evaluator, AIME2025Evaluator, AIMEEvaluator
+from .evaluator import AsyncEnvFactory, EvalSample, Evaluator
 from .metrics import MetricFn, pass_at_k_metric
+from .registry import get_benchmark, list_benchmarks, register
 
 __all__ = [
+    "AIME2024Evaluator",
+    "AIME2025Evaluator",
     "AIMEEvaluator",
+    "AsyncEnvFactory",
     "EvalSample",
     "Evaluator",
     "MetricFn",
+    "get_benchmark",
+    "list_benchmarks",
     "pass_at_k_metric",
+    "register",
 ]

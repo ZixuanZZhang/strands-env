@@ -12,24 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Math environment example — run math problems through a Strands agent with a calculator tool.
+"""Calculator environment demo — shows how to use an Environment programmatically.
+
+This example demonstrates:
+- Creating a model factory
+- Instantiating an environment with tools
+- Running steps and inspecting results
 
 Usage:
     # SGLang backend (requires a running SGLang server)
-    python examples/math_env.py --backend sglang --sglang-base-url http://localhost:30000
+    python examples/calculator_demo.py --backend sglang
 
     # Bedrock backend (requires AWS credentials)
-    python examples/math_env.py --backend bedrock --model-id us.anthropic.claude-sonnet-4-20250514
+    python examples/calculator_demo.py --backend bedrock --model-id us.anthropic.claude-sonnet-4-20250514
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Literal
 
 import click
-from common import ModelConfig, SamplingParams
 
+from strands_env.cli.config import ModelConfig, SamplingConfig
+from strands_env.cli.utils import build_model_factory
 from strands_env.core.types import Action, TaskContext
 from strands_env.environments.calculator.env import CalculatorEnv
 from strands_env.rewards.math_reward import MathRewardFunction
@@ -41,10 +48,29 @@ MATH_PROBLEMS = [
 ]
 
 
-async def run_math_env(config: ModelConfig, verbose: bool) -> None:
-    model_factory = config.create_factory()
-    env = CalculatorEnv(model_factory=model_factory, reward_fn=MathRewardFunction(), verbose=verbose)
+async def run_demo(
+    backend: Literal["sglang", "bedrock"],
+    model_id: str | None,
+    base_url: str,
+) -> None:
+    """Run math problems through the calculator environment."""
+    # Build model factory using CLI utilities
+    config = ModelConfig(
+        backend=backend,
+        model_id=model_id,
+        base_url=base_url,
+        sampling=SamplingConfig(),
+    )
+    model_factory = build_model_factory(config, max_concurrency=1)
 
+    # Create environment with calculator tool and math reward function
+    env = CalculatorEnv(
+        model_factory=model_factory,
+        reward_fn=MathRewardFunction(),
+        verbose=False,
+    )
+
+    # Run each problem
     for question, ground_truth in MATH_PROBLEMS:
         click.echo(f"\n{'=' * 60}")
         click.echo(f"Question: {question}")
@@ -61,22 +87,28 @@ async def run_math_env(config: ModelConfig, verbose: bool) -> None:
 
 
 @click.command()
-@click.option("--backend", required=True, type=click.Choice(["sglang", "bedrock"]), help="Model backend")
-@click.option("--model-id", default=None, help="Model ID (auto-detected for SGLang)")
-@click.option("--sglang-base-url", default="http://localhost:30000", help="SGLang server URL")
-@click.option("--verbose", is_flag=True, help="Print agent callback output")
-def main(backend: str, model_id: str | None, sglang_base_url: str, verbose: bool) -> None:
-    """Run math problems through a Strands agent with a calculator tool."""
+@click.option(
+    "--backend",
+    "-b",
+    required=True,
+    type=click.Choice(["sglang", "bedrock"]),
+    help="Model backend.",
+)
+@click.option(
+    "--model-id",
+    default=None,
+    help="Model ID. Auto-detected for SGLang if not provided.",
+)
+@click.option(
+    "--base-url",
+    default="http://localhost:30000",
+    help="Base URL for SGLang server.",
+)
+def main(backend: str, model_id: str | None, base_url: str) -> None:
+    """Run math problems through a calculator environment."""
     logging.basicConfig(level=logging.WARNING)
 
-    config = ModelConfig(
-        backend=backend,
-        model_id=model_id,
-        base_url=sglang_base_url,
-        sampling_params=SamplingParams(),
-    )
-
-    asyncio.run(run_math_env(config, verbose))
+    asyncio.run(run_demo(backend, model_id, base_url))
 
 
 if __name__ == "__main__":
