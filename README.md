@@ -8,14 +8,11 @@ Standardizing environment infrastructure with [Strands Agents](https://github.co
 
 ## Features
 
-This package standardizes agent environments by treating each `env.step()` as a **full agent loop**, not a single model call or tool call. Built on [strands](https://github.com/strands-agents/sdk-python) agent loop and [`strands-sglang`](https://github.com/horizon-rl/strands-sglang) for RL training.
+This package treats each `env.step()` as a **full agent loop** `(prompt → (tool_call, tool_response)* → response)`, not a single model call.
 
-- **Define environments easily** — subclass `Environment` and implement tools as `@tool` functions
-- **Capture token-level observations** — token-in/token-out trajectories for on-policy RL training (SGLang backend)
-- **Plug in reward functions** — evaluate agent outputs with custom `RewardFunction`
-- **Run benchmarks** — CLI and `Evaluator` with checkpointing, resume, and pass@k metrics
-
-> An agent loop can be defined as `(prompt → (tool_call, tool_response+)* → response)`
+- **Define Environments** — Subclass `Environment`, add `@tool` functions, plug in `RewardFunction`
+- **RL Training** — Token-level observations for on-policy training with [strands-sglang](https://github.com/horizon-rl/strands-sglang)
+- **Benchmarking** — CLI and `Evaluator` with checkpointing, resume, and custom metrics
 
 ## Install
 
