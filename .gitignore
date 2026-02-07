@@ -222,3 +222,6 @@ uv.lock
 
 # Ignore results directory
 results/
+
+# Ignore eval output directories
+*_eval/
