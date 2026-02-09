@@ -32,6 +32,7 @@ strands-env eval --evaluator <evaluator_file> --env <hook_file> [options]
 - `--base-url` - SGLang server URL (default: `http://localhost:30000`)
 - `--model-id` - Model ID (auto-detected for SGLang, required for Bedrock)
 - `--tokenizer-path` - Tokenizer path (defaults to model_id)
+- `--tool-parser` - Tool parser name (e.g., `hermes`, `qwen_xml`) or path to hook file
 - `--region` - AWS region for Bedrock
 - `--profile-name` - AWS profile name for Bedrock
 - `--role-arn` - AWS role ARN to assume for Bedrock
@@ -57,18 +58,29 @@ strands-env eval --evaluator <evaluator_file> --env <hook_file> [options]
 ### Examples
 
 ```bash
-# Using registered benchmark
-strands-env eval aime-2024 --env examples/envs/calculator_env.py --backend sglang
+# Using registered benchmark with code sandbox env
+strands-env eval aime-2024 \
+    --env examples/eval/aime_code/code_sandbox_env.py \
+    --base-url http://localhost:30000
 
-# Using custom evaluator hook (see examples/evaluators/)
-strands-env eval --evaluator examples/evaluators/simple_math_evaluator.py \
-    --env examples/envs/calculator_env.py --backend sglang
+# Using custom evaluator hook (custom benchmark)
+strands-env eval \
+    --evaluator examples/eval/simple_math/simple_math_evaluator.py \
+    --env examples/eval/simple_math/calculator_env.py \
+    --base-url http://localhost:30000
 
 # Pass@8 evaluation with high concurrency
-strands-env eval aime-2024 --env examples/envs/calculator_env.py \
-    --backend sglang \
+strands-env eval aime-2024 \
+    --env examples/eval/simple_math/calculator_env.py \
+    --base-url http://localhost:30000 \
     --n-samples-per-prompt 8 \
     --max-concurrency 30
+
+# With custom tool parser
+strands-env eval aime-2024 \
+    --env examples/eval/simple_math/calculator_env.py \
+    --base-url http://localhost:30000 \
+    --tool-parser qwen_xml
 ```
 
 ## Hook Files
@@ -104,11 +116,11 @@ def create_env_factory(model_factory: ModelFactory, env_config: EnvConfig):
 ### Example: Calculator Environment
 
 ```python
-# examples/envs/calculator_env.py
+# examples/eval/simple_math/calculator_env.py
 from strands_env.cli.config import EnvConfig
 from strands_env.core.models import ModelFactory
-from strands_env.environments.calculator import CalculatorEnv
-from strands_env.rewards.math_reward import MathRewardFunction
+from strands_env.environments import CalculatorEnv
+from strands_env.rewards import MathRewardFunction
 
 def create_env_factory(model_factory: ModelFactory, env_config: EnvConfig):
     reward_fn = MathRewardFunction()
@@ -127,11 +139,11 @@ def create_env_factory(model_factory: ModelFactory, env_config: EnvConfig):
 ### Example: Code Sandbox Environment
 
 ```python
-# examples/envs/code_sandbox_env.py
+# examples/eval/aime_code/code_sandbox_env.py
 from strands_env.cli.config import EnvConfig
 from strands_env.core.models import ModelFactory
-from strands_env.environments.code_sandbox import CodeMode, CodeSandboxEnv
-from strands_env.rewards.math_reward import MathRewardFunction
+from strands_env.environments import CodeMode, CodeSandboxEnv
+from strands_env.rewards import MathRewardFunction
 
 def create_env_factory(model_factory: ModelFactory, env_config: EnvConfig):
     reward_fn = MathRewardFunction()
@@ -181,7 +193,7 @@ EvaluatorClass = MyEvaluator
 
 Then run:
 ```bash
-strands-env eval --evaluator my_evaluator.py --env my_env.py --backend sglang
+strands-env eval --evaluator my_evaluator.py --env my_env.py --base-url http://localhost:30000
 ```
 
 ### Registered Evaluator
@@ -252,6 +264,41 @@ class MyEvaluator(Evaluator):
 
     def my_custom_metric(self, results: dict) -> dict:
         return {"my_metric": compute_something(results)}
+```
+
+## Tool Parser Hook
+
+For models that use non-standard tool calling formats, you can specify a custom tool parser via `--tool-parser`. This accepts either:
+
+1. A predefined parser name from `strands-sglang` (e.g., `hermes`, `qwen_xml`)
+2. A path to a Python hook file
+
+### Hook File Format
+
+The hook file must export either `tool_parser` (instance) or `ToolParserClass` (subclass):
+
+```python
+# my_tool_parser.py
+from strands_sglang.tool_parsers import ToolParser, ToolParseResult
+
+class MyToolParser(ToolParser):
+    def parse(self, text: str) -> list[ToolParseResult]:
+        # Custom parsing logic
+        ...
+
+# Export as instance
+tool_parser = MyToolParser()
+
+# OR export as class (will be instantiated)
+ToolParserClass = MyToolParser
+```
+
+Then use:
+```bash
+strands-env eval aime-2024 \
+    --env my_env.py \
+    --base-url http://localhost:30000 \
+    --tool-parser my_tool_parser.py
 ```
 
 ## Output Files
