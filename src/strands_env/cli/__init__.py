@@ -110,6 +110,12 @@ def list_cmd():
     default=None,
     help="AWS role ARN for Bedrock (optional).",
 )
+@click.option(
+    "--tool-parser",
+    type=str,
+    default=None,
+    help="Tool parser: name (e.g., 'hermes', 'qwen_xml') or path to hook file.",
+)
 # Sampling params
 @click.option(
     "--temperature",
@@ -199,6 +205,7 @@ def eval_cmd(
     region: str | None,
     profile_name: str | None,
     role_arn: str | None,
+    tool_parser: str | None,
     # Sampling
     temperature: float,
     max_tokens: int,
@@ -260,6 +267,7 @@ def eval_cmd(
         base_url=base_url,
         model_id=model_id,
         tokenizer_path=tokenizer_path,
+        tool_parser=tool_parser,
         region=region,
         profile_name=profile_name,
         role_arn=role_arn,

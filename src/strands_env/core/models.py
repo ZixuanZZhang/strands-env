@@ -67,7 +67,7 @@ def sglang_model_factory(
     model_id: str,
     tokenizer: PreTrainedTokenizerBase,
     client: SGLangClient,
-    tool_parser: ToolParser = HermesToolParser(),
+    tool_parser: ToolParser | None = None,
     sampling_params: dict[str, Any] = DEFAULT_SAMPLING_PARAMS,
     enable_thinking: bool | None = None,
 ) -> ModelFactory:
@@ -77,9 +77,13 @@ def sglang_model_factory(
         model_id: SGLang model identifier.
         tokenizer: HuggingFace tokenizer for chat template and tokenization.
         client: `SGLangClient` for HTTP communication with the SGLang server.
+        tool_parser: Tool parser for extracting tool calls from model output. Defaults to `HermesToolParser`.
         sampling_params: Sampling parameters for the model (e.g. `{"max_new_tokens": 4096}`).
         enable_thinking: Enable thinking mode for Qwen3 hybrid models.
     """
+    if tool_parser is None:
+        tool_parser = HermesToolParser()
+
     return lambda: SGLangModel(
         tokenizer=tokenizer,
         client=client,

@@ -51,6 +51,7 @@ class ModelConfig:
     # SGLang
     base_url: str = "http://localhost:30000"
     tokenizer_path: str | None = None  # Auto-detected if None
+    tool_parser: str | None = None  # Parser name or path to hook file
 
     # Bedrock
     model_id: str | None = None
@@ -67,6 +68,7 @@ class ModelConfig:
             "backend": self.backend,
             "base_url": self.base_url,
             "tokenizer_path": self.tokenizer_path,
+            "tool_parser": self.tool_parser,
             "model_id": self.model_id,
             "region": self.region,
             "profile_name": self.profile_name,
