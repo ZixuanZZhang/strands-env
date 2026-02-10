@@ -12,17 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .evaluator import AsyncEnvFactory, EvalSample, Evaluator
-from .metrics import MetricFn
-from .registry import get_benchmark, list_benchmarks, list_unavailable_benchmarks, register_eval
+"""Benchmark evaluator modules.
 
-__all__ = [
-    "AsyncEnvFactory",
-    "EvalSample",
-    "Evaluator",
-    "MetricFn",
-    "get_benchmark",
-    "list_benchmarks",
-    "list_unavailable_benchmarks",
-    "register_eval",
-]
+Each module in this package defines benchmark evaluators using @register_eval.
+Modules with missing dependencies are skipped during discovery.
+"""

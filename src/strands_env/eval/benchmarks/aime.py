@@ -24,8 +24,8 @@ from typing_extensions import override
 
 from strands_env.core import Action, TaskContext
 
-from .evaluator import Evaluator
-from .registry import register_eval
+from ..evaluator import Evaluator
+from ..registry import register_eval
 
 logger = logging.getLogger(__name__)
 

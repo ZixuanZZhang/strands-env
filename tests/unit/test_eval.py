@@ -6,7 +6,7 @@ import pytest
 
 from strands_env.core import Action, Environment, Observation, RewardResult, StepResult, TaskContext
 from strands_env.eval import EvalSample, Evaluator
-from strands_env.eval.aime import AIME2024Evaluator
+from strands_env.eval.benchmarks.aime import AIME2024Evaluator
 from strands_env.eval.metrics import compute_pass_at_k
 
 # ---------------------------------------------------------------------------
@@ -336,7 +336,7 @@ class TestAIME2024Evaluator:
             {"id": 1, "problem": "What is 1+1?", "answer": "2"},
             {"id": 2, "problem": "What is 2+2?", "answer": "4"},
         ]
-        mocker.patch("strands_env.eval.aime.load_dataset", return_value=mock_dataset)
+        mocker.patch("strands_env.eval.benchmarks.aime.load_dataset", return_value=mock_dataset)
 
         evaluator = AIME2024Evaluator(env_factory=mock_env_factory)
         actions = list(evaluator.load_dataset())
@@ -353,7 +353,7 @@ class TestAIME2024Evaluator:
             {"id": 2, "problem": None, "answer": "4"},  # Missing problem
             {"id": 3, "problem": "What is 3+3?", "answer": None},  # Missing answer
         ]
-        mocker.patch("strands_env.eval.aime.load_dataset", return_value=mock_dataset)
+        mocker.patch("strands_env.eval.benchmarks.aime.load_dataset", return_value=mock_dataset)
 
         evaluator = AIME2024Evaluator(env_factory=mock_env_factory)
         actions = list(evaluator.load_dataset())
@@ -366,7 +366,7 @@ class TestAIME2024Evaluator:
         mock_dataset = [
             {"problem": "What is 1+1?", "answer": "2"},  # No id field
         ]
-        mocker.patch("strands_env.eval.aime.load_dataset", return_value=mock_dataset)
+        mocker.patch("strands_env.eval.benchmarks.aime.load_dataset", return_value=mock_dataset)
 
         evaluator = AIME2024Evaluator(env_factory=mock_env_factory)
         actions = list(evaluator.load_dataset())

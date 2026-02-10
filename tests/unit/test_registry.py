@@ -65,7 +65,7 @@ class TestListCommand:
 
     def test_list_benchmarks(self, runner):
         """List command shows registered benchmarks."""
-        result = runner.invoke(cli, ["list"])
+        result = runner.invoke(cli, ["eval", "list"])
         assert result.exit_code == 0
         assert "Benchmarks:" in result.output
         assert "aime-2024" in result.output
@@ -78,13 +78,13 @@ class TestEvalCommand:
         return CliRunner()
 
     def test_eval_requires_env(self, runner):
-        """Eval command requires --env option."""
-        result = runner.invoke(cli, ["eval", "aime-2024"])
+        """Eval run command requires --env option."""
+        result = runner.invoke(cli, ["eval", "run", "aime-2024"])
         assert result.exit_code != 0
         assert "Missing option" in result.output or "--env" in result.output
 
     def test_eval_unknown_benchmark(self, runner, tmp_path):
-        """Eval command fails for unknown benchmark."""
+        """Eval run command fails for unknown benchmark."""
         # Create a minimal hook file
         hook_file = tmp_path / "test_env.py"
         hook_file.write_text("""
@@ -93,14 +93,14 @@ def create_env_factory(model_factory, env_config):
         return None
     return env_factory
 """)
-        result = runner.invoke(cli, ["eval", "nonexistent", "--env", str(hook_file)])
+        result = runner.invoke(cli, ["eval", "run", "nonexistent", "--env", str(hook_file)])
         assert result.exit_code != 0
         assert "Unknown benchmark" in result.output
 
     def test_eval_invalid_hook_file(self, runner, tmp_path):
-        """Eval command fails if hook file doesn't export create_env_factory."""
+        """Eval run command fails if hook file doesn't export create_env_factory."""
         hook_file = tmp_path / "bad_env.py"
         hook_file.write_text("# No create_env_factory here")
-        result = runner.invoke(cli, ["eval", "aime-2024", "--env", str(hook_file)])
+        result = runner.invoke(cli, ["eval", "run", "aime-2024", "--env", str(hook_file)])
         assert result.exit_code != 0
         assert "create_env_factory" in result.output

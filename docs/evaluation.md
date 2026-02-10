@@ -9,17 +9,17 @@ The `strands-env` CLI provides commands for running benchmark evaluations.
 ### List Benchmarks
 
 ```bash
-strands-env list
+strands-env eval list
 ```
 
 ### Run Evaluation
 
 ```bash
 # Using a registered benchmark
-strands-env eval <benchmark> --env <hook_file> [options]
+strands-env eval run <benchmark> --env <hook_file> [options]
 
 # Using a custom evaluator hook
-strands-env eval --evaluator <evaluator_file> --env <hook_file> [options]
+strands-env eval run --evaluator <evaluator_file> --env <hook_file> [options]
 ```
 
 **Required arguments:**
@@ -59,25 +59,25 @@ strands-env eval --evaluator <evaluator_file> --env <hook_file> [options]
 
 ```bash
 # Using registered benchmark with code sandbox env
-strands-env eval aime-2024 \
+strands-env eval run aime-2024 \
     --env examples/eval/aime_code/code_sandbox_env.py \
     --base-url http://localhost:30000
 
 # Using custom evaluator hook (custom benchmark)
-strands-env eval \
+strands-env eval run \
     --evaluator examples/eval/simple_math/simple_math_evaluator.py \
     --env examples/eval/simple_math/calculator_env.py \
     --base-url http://localhost:30000
 
 # Pass@8 evaluation with high concurrency
-strands-env eval aime-2024 \
+strands-env eval run aime-2024 \
     --env examples/eval/simple_math/calculator_env.py \
     --base-url http://localhost:30000 \
     --n-samples-per-prompt 8 \
     --max-concurrency 30
 
 # With custom tool parser
-strands-env eval aime-2024 \
+strands-env eval run aime-2024 \
     --env examples/eval/simple_math/calculator_env.py \
     --base-url http://localhost:30000 \
     --tool-parser qwen_xml
@@ -193,18 +193,21 @@ EvaluatorClass = MyEvaluator
 
 Then run:
 ```bash
-strands-env eval --evaluator my_evaluator.py --env my_env.py --base-url http://localhost:30000
+strands-env eval run --evaluator my_evaluator.py --env my_env.py --base-url http://localhost:30000
 ```
 
 ### Registered Evaluator
 
-Alternatively, use `@register_eval` to make it available by name:
+To add a built-in benchmark, create a module in `src/strands_env/eval/benchmarks/` and use `@register_eval`:
 
 ```python
+# src/strands_env/eval/benchmarks/my_benchmark.py
 from collections.abc import Iterable
 
 from strands_env.core import Action, TaskContext
-from strands_env.eval import Evaluator, register_eval
+
+from ..evaluator import Evaluator
+from ..registry import register_eval
 
 @register_eval("my-benchmark")
 class MyEvaluator(Evaluator):
@@ -221,6 +224,8 @@ class MyEvaluator(Evaluator):
                 ),
             )
 ```
+
+Benchmarks are auto-discovered from the `benchmarks/` subdirectory. If a benchmark has missing dependencies, it will be listed as unavailable in `strands-env eval list` with the import error message.
 
 ### Programmatic Usage
 
@@ -296,7 +301,7 @@ ToolParserClass = MyToolParser
 
 Then use:
 ```bash
-strands-env eval aime-2024 \
+strands-env eval run aime-2024 \
     --env my_env.py \
     --base-url http://localhost:30000 \
     --tool-parser my_tool_parser.py

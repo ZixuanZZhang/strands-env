@@ -61,7 +61,9 @@ The package lives in `src/strands_env/` with these modules:
 
 ### `cli/`
 
-**__init__.py** — CLI entry point with `strands-env` command group. `list` shows registered benchmarks. `eval` runs benchmark evaluation with environment and optional evaluator hooks.
+**__init__.py** — CLI entry point with `strands-env` command group. Registers subcommand groups.
+
+**eval.py** — Evaluation CLI commands: `strands-env eval list` shows registered/unavailable benchmarks, `strands-env eval run` executes benchmark evaluation with environment and optional evaluator hooks.
 
 **config.py** — Configuration dataclasses: `SamplingConfig`, `ModelConfig`, `EnvConfig`, `EvalConfig`. Each has `to_dict()` for serialization. Config saved to output directory for reproducibility.
 
@@ -71,11 +73,13 @@ The package lives in `src/strands_env/` with these modules:
 
 **evaluator.py** — `Evaluator` class orchestrates concurrent rollouts with checkpointing and pass@k metrics. Takes an async `env_factory` for flexible environment creation. Uses tqdm with `logging_redirect_tqdm` for clean progress output. Subclasses implement `load_dataset()` for different benchmarks.
 
-**registry.py** — Benchmark registry with `@register_eval(name)` decorator. `get_benchmark(name)` and `list_benchmarks()` for discovery.
+**registry.py** — Benchmark registry with `@register_eval(name)` decorator. Auto-discovers benchmark modules from `benchmarks/` subdirectory on first access. `get_benchmark(name)`, `list_benchmarks()`, and `list_unavailable_benchmarks()` for discovery. Modules with missing dependencies are tracked as unavailable.
 
 **metrics.py** — `compute_pass_at_k` implements the unbiased pass@k estimator. `MetricFn` type alias for pluggable metrics.
 
-**aime.py** — `AIMEEvaluator` base class for AIME benchmarks. `AIME2024Evaluator` and `AIME2025Evaluator` registered as separate benchmarks with different dataset paths.
+**benchmarks/** — Benchmark evaluator modules. Each module uses `@register_eval` decorator. Auto-discovered on first registry access; missing dependencies cause module to be skipped with warning.
+
+**benchmarks/aime.py** — `AIMEEvaluator` base class for AIME benchmarks. `AIME2024Evaluator` and `AIME2025Evaluator` registered as separate benchmarks with different dataset paths.
 
 ### `utils/`
 
