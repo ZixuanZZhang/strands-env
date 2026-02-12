@@ -25,6 +25,7 @@ import logging
 
 from math_verify import ExprExtractionConfig, LatexExtractionConfig, parse, verify
 from math_verify.errors import TimeoutException as MathVerifyTimeout
+from typing_extensions import override
 
 from strands_env.core.types import Action, RewardFunction, RewardResult, StepResult
 
@@ -88,6 +89,7 @@ class MathRewardFunction(RewardFunction):
             raise_on_error=True,
         )
 
+    @override
     async def compute(self, action: Action, step_result: StepResult) -> RewardResult:
         ground_truth = action.task_context.ground_truth
         if not isinstance(ground_truth, str) or not ground_truth.strip():
