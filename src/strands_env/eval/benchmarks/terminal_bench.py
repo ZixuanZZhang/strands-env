@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TerminalBenchEvaluator for Terminal-Bench evaluation."""
+"""Evaluator for Terminal-Bench (Harbor) benchmarks."""
 
 from __future__ import annotations
 

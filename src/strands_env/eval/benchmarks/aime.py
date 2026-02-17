@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""AIME (American Invitational Mathematics Examination) benchmarks."""
+"""Evaluator forAIME (American Invitational Mathematics Examination) benchmarks."""
 
 from __future__ import annotations
 
