@@ -62,10 +62,17 @@ class TestMathEnvironment:
         action = Action(message="What is 5 + 3?")
         result = await env.step(action)
 
-        assert result.observation.tokens is not None
-        assert len(result.observation.tokens.token_ids) > 0
-        assert result.observation.tokens.prompt_length > 0
-        assert len(result.observation.tokens.rollout_token_ids) > 0
+        tokens = result.observation.tokens
+        assert tokens is not None
+        assert len(tokens.token_ids) > 0
+        assert tokens.prompt_length > 0
+        assert len(tokens.rollout_token_ids) > 0
+        # Structural invariants: loss_mask and logprobs must align with token_ids
+        assert len(tokens.loss_mask) == len(tokens.token_ids)
+        assert len(tokens.logprobs) == len(tokens.token_ids)
+        # Rollout logprobs should contain actual float values (not all None)
+        rollout_lp = tokens.rollout_logprobs
+        assert any(lp is not None for lp in rollout_lp)
 
     async def test_step_with_conversation_history(self, model_factory):
         """Agent uses conversation history for multi-turn interaction."""
@@ -88,7 +95,7 @@ class TestMathEnvironment:
         assert result2.termination_reason == TerminationReason.TASK_COMPLETE
 
     async def test_step_metrics(self, model_factory):
-        """Step produces expected metric keys."""
+        """Step produces expected metric keys with correct structure."""
         env = MathEnvironment(
             model_factory=model_factory,
             system_prompt="You are a math assistant. Use the calculator tool. Be concise.",
@@ -99,9 +106,24 @@ class TestMathEnvironment:
         metrics = result.observation.metrics
         assert "message_count" in metrics
         assert "tool_iters" in metrics
+        assert "tool_calls" in metrics
         assert "model_calls" in metrics
-        assert "input_tokens" in metrics
-        assert "output_tokens" in metrics
+        assert metrics["model_calls"] >= 1
+        # Token usage dicts have total/max/mean/min
+        for key in ("input_tokens", "output_tokens"):
+            usage = metrics[key]
+            assert isinstance(usage, dict)
+            for subkey in ("total", "max", "mean", "min"):
+                assert subkey in usage
+                assert usage[subkey] > 0
+        # Per-tool metrics: calculator should appear with correct structure
+        per_tool = metrics.get("per_tool_metrics")
+        assert per_tool is not None
+        assert "calculator" in per_tool
+        calc_metrics = per_tool["calculator"]
+        assert calc_metrics["calls"] >= 1
+        assert calc_metrics["successes"] >= 1
+        assert "latency_s" in calc_metrics
 
     async def test_tool_iteration_limit(self, model_factory):
         """Environment respects max_tool_iters."""
@@ -118,6 +140,26 @@ class TestMathEnvironment:
 
         assert result.termination_reason == TerminationReason.MAX_TOOL_ITERATIONS_REACHED
         assert result.observation.metrics["tool_iters"] <= 1
+
+    async def test_max_tool_calls(self, model_factory):
+        """Environment respects max_tool_calls (distinct from max_tool_iters).
+
+        Note: parallel tool calls within a single iteration may exceed the limit
+        before the limiter fires, so we only assert on termination reason.
+        """
+        env = MathEnvironment(
+            model_factory=model_factory,
+            system_prompt=(
+                "You are a math assistant. Use the calculator tool for every single step. "
+                "Break every problem into many small steps, each requiring a separate calculator call."
+            ),
+            max_tool_calls=1,
+        )
+        action = Action(message="Compute 1+1, then 2+2, then 3+3, then 4+4, then 5+5 one at a time.")
+        result = await env.step(action)
+
+        assert result.termination_reason == TerminationReason.MAX_TOOL_CALLS_REACHED
+        assert result.observation.metrics["tool_calls"] >= 1
 
     async def test_final_response(self, model_factory):
         """Observation provides final assistant response text."""
