@@ -84,6 +84,15 @@ def _create_assumed_role_session(role_arn: str, region: str, session_name: str) 
     return boto3.Session(botocore_session=botocore_session, region_name=region)
 
 
+def check_credentials(session: boto3.Session) -> bool:
+    """Check whether a boto3 session has valid credentials."""
+    try:
+        session.client("sts").get_caller_identity()
+        return True
+    except Exception:
+        return False
+
+
 def clear_session_cache() -> None:
     """Clear all cached boto3 sessions."""
     get_session.cache_clear()

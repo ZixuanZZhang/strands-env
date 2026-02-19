@@ -23,7 +23,7 @@ import pytest
 
 from strands_env.core.types import Action, RewardResult, StepResult, TaskContext, TerminationReason
 from strands_env.environments.code_sandbox import CodeMode, CodeSandboxEnv
-from strands_env.utils.aws import get_session
+from strands_env.utils.aws import check_credentials, get_session
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -33,12 +33,9 @@ from strands_env.utils.aws import get_session
 @pytest.fixture(scope="session")
 def boto3_session():
     """Create a boto3 session, skipping if AWS credentials are not configured."""
-    try:
-        session = get_session()
-        # Verify credentials are actually available
-        session.client("sts").get_caller_identity()
-    except Exception as exc:
-        pytest.skip(f"AWS credentials not available: {exc}")
+    session = get_session()
+    if not check_credentials(session):
+        pytest.skip("AWS credentials not available")
     return session
 
 

@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import boto3
 
-from strands_env.utils.aws import clear_session_cache, get_session
+from strands_env.utils.aws import check_credentials, clear_session_cache, get_session
 
 
 class TestGetSession:
@@ -157,6 +157,21 @@ class TestGetSessionWithRoleAssumption:
         # Verify it's RefreshableCredentials with a refresh callback
         assert isinstance(botocore_creds, RefreshableCredentials)
         assert botocore_creds._refresh_using is not None
+
+
+class TestCheckCredentials:
+    """Tests for check_credentials."""
+
+    def test_returns_true_when_valid(self):
+        mock_session = MagicMock()
+        mock_session.client.return_value.get_caller_identity.return_value = {"Account": "123456789"}
+        assert check_credentials(mock_session) is True
+        mock_session.client.assert_called_once_with("sts")
+
+    def test_returns_false_on_exception(self):
+        mock_session = MagicMock()
+        mock_session.client.return_value.get_caller_identity.side_effect = Exception("NoCredentials")
+        assert check_credentials(mock_session) is False
 
 
 class TestClearSessionCache:
