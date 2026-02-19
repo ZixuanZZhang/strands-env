@@ -40,7 +40,7 @@ class SamplingConfig:
 class ModelConfig:
     """Model configuration."""
 
-    backend: Literal["sglang", "bedrock"] = "sglang"
+    backend: Literal["sglang", "bedrock", "kimi"] = "sglang"
 
     # SGLang
     base_url: str = "http://localhost:30000"

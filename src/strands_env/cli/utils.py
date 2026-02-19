@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Callable
 
 import click
 
-from strands_env.core.models import ModelFactory, bedrock_model_factory, sglang_model_factory
+from strands_env.core.models import ModelFactory, bedrock_model_factory, kimi_model_factory, sglang_model_factory
 
 from .config import EnvConfig, ModelConfig
 
@@ -239,6 +239,8 @@ def build_model_factory(config: ModelConfig, max_concurrency: int) -> ModelFacto
         return _build_sglang_model_factory(config, max_concurrency, sampling)
     elif config.backend == "bedrock":
         return _build_bedrock_model_factory(config, sampling)
+    elif config.backend == "kimi":
+        return _build_kimi_model_factory(config, sampling)
     else:
         raise click.ClickException(f"Unknown backend: {config.backend}")
 
@@ -286,3 +288,16 @@ def _build_bedrock_model_factory(config: ModelConfig, sampling: dict) -> ModelFa
     )
 
     return bedrock_model_factory(model_id=config.model_id, boto_session=boto_session, sampling_params=sampling)
+
+
+def _build_kimi_model_factory(config: ModelConfig, sampling: dict) -> ModelFactory:
+    """Build Kimi (Moonshot AI) model factory via LiteLLM."""
+    import os
+
+    if not os.environ.get("MOONSHOT_API_KEY"):
+        raise click.ClickException("MOONSHOT_API_KEY environment variable is required for Kimi backend")
+
+    return kimi_model_factory(
+        model_id=config.model_id or "moonshot/kimi-k2.5",
+        sampling_params=sampling,
+    )

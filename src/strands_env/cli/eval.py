@@ -79,7 +79,7 @@ def list_cmd():
 @click.option(
     "--backend",
     "-b",
-    type=click.Choice(["sglang", "bedrock"]),
+    type=click.Choice(["sglang", "bedrock", "kimi"]),
     default="sglang",
     help="Model backend.",
 )
@@ -213,7 +213,7 @@ def run_cmd(
     evaluator_path: Path | None,
     env_path: Path,
     # Model
-    backend: Literal["sglang", "bedrock"],
+    backend: Literal["sglang", "bedrock", "kimi"],
     base_url: str,
     model_id: str | None,
     tokenizer_path: str | None,
