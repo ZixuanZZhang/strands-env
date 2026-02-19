@@ -12,9 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Environments for strands-env.
-
-Import directly from subpackages:
-    from strands_env.environments.calculator import CalculatorEnv
-    from strands_env.environments.code_sandbox import CodeMode, CodeSandboxEnv
-"""
+"""Environments for strands-env."""
