@@ -8,6 +8,7 @@ AIME math competition benchmark using `CodeSandboxEnv` (AWS Bedrock AgentCore Co
 |---|---|
 | `aime-2024` | [AIME 2024](https://huggingface.co/datasets/HuggingFaceH4/aime_2024) |
 | `aime-2025` | [AIME 2025](https://huggingface.co/datasets/MathArena/aime_2025) |
+| `aime-2026` | [AIME 2026](https://huggingface.co/datasets/MathArena/aime_2026) | 
 
 ## Setup
 
@@ -20,7 +21,7 @@ Requires AWS credentials with Bedrock AgentCore access.
 ## Usage
 
 ```bash
-strands-env eval run aime-2024 \
+strands-env eval run aime-2026 \
     --env examples/eval/aime_code/code_sandbox_env.py \
     --backend sglang \
     --base-url http://localhost:30000 \
