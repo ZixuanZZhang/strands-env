@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Environments for strands-env."""
+"""Environments for strands-env.
 
-from .calculator import CalculatorEnv
-from .code_sandbox import CodeMode, CodeSandboxEnv
-
-__all__ = ["CalculatorEnv", "CodeMode", "CodeSandboxEnv"]
+Import directly from subpackages:
+    from strands_env.environments.calculator import CalculatorEnv
+    from strands_env.environments.code_sandbox import CodeMode, CodeSandboxEnv
+"""

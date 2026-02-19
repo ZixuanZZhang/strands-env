@@ -16,7 +16,7 @@
 
 from strands_env.cli.config import EnvConfig
 from strands_env.core.models import ModelFactory
-from strands_env.environments import CodeMode, CodeSandboxEnv
+from strands_env.environments.code_sandbox import CodeMode, CodeSandboxEnv
 from strands_env.rewards import MathRewardFunction
 
 
