@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field
 from strands.models.bedrock import BedrockModel
 
 from strands_env.core.types import Action, Observation, StepResult, TaskContext, TerminationReason
-from strands_env.rewards.llm_judge_reward import LLMJudgeRewardFunction
+from strands_env.rewards.llm_judge_reward import LLMJudgeReward
 
 # ---------------------------------------------------------------------------
 # Judgment schema
@@ -57,7 +57,7 @@ class SimpleQAJudgment(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class SimpleQAReward(LLMJudgeRewardFunction):
+class SimpleQAReward(LLMJudgeReward):
     """LLM-as-judge reward for simple QA tasks."""
 
     judgment_format = SimpleQAJudgment

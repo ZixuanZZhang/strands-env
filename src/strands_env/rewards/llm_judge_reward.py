@@ -29,7 +29,7 @@ from strands_env.core.types import Action, RewardFunction, RewardResult, StepRes
 logger = logging.getLogger(__name__)
 
 
-class LLMJudgeRewardFunction(RewardFunction):
+class LLMJudgeReward(RewardFunction):
     """Abstract base for LLM-as-judge reward functions.
 
     Subclasses set `judgment_format` class attribute and implement
