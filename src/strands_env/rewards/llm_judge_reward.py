@@ -85,12 +85,12 @@ class LLMJudgeReward(RewardFunction):
     @abstractmethod
     async def get_judge_prompt(self, action: Action, step_result: StepResult) -> str:
         """Format the prompt for the judge model."""
-        ...
+        raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
     async def get_reward(self, judgment: BaseModel | str) -> float:
         """Get reward from judgment (structured or text)."""
-        ...
+        raise NotImplementedError("Subclasses must implement this method.")
 
     @override
     async def compute(self, action: Action, step_result: StepResult) -> RewardResult:
