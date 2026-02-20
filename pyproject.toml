@@ -33,7 +33,7 @@ dependencies = [
 strands-env = "strands_env.cli:main"
 
 [project.optional-dependencies]
-kimi = ["strands-agents[litellm]"]
+litellm = ["strands-agents[litellm]"]
 dev = [
     # Testing
     "pytest>=7.0.0",
