@@ -171,3 +171,77 @@ def openai_model_factory(
         params=sampling_params,
         client_args=client_args,
     )
+
+
+# ---------------------------------------------------------------------------
+# Kimi Model (Moonshot AI — via LiteLLM)
+# ---------------------------------------------------------------------------
+
+
+def _get_kimi_model_class():
+    """Return a LiteLLMModel subclass that preserves reasoning_content for Moonshot.
+
+    Both OpenAIModel and LiteLLMModel strip reasoningContent in _format_regular_messages,
+    but Moonshot requires it back as a top-level reasoning_content field in multi-turn messages.
+    """
+    from strands.models.litellm import LiteLLMModel
+
+    class KimiModel(LiteLLMModel):
+        @classmethod
+        def _format_regular_messages(cls, messages, **kwargs):
+            # Extract reasoning text before super() strips reasoningContent blocks
+            reasoning_map: dict[int, str] = {}
+            for i, message in enumerate(messages):
+                parts = [
+                    content["reasoningContent"].get("reasoningText", {}).get("text", "")
+                    for content in message["content"]
+                    if "reasoningContent" in content
+                ]
+                if any(parts):
+                    reasoning_map[i] = "".join(parts)
+
+            # Delegate to parent (strips reasoningContent, formats toolUse/toolResult)
+            formatted_messages = super()._format_regular_messages(messages, **kwargs)
+
+            # Re-inject reasoning_content into the corresponding formatted messages.
+            # super() emits one primary message per original message (same role),
+            # plus extra "tool" role messages for toolResult blocks — skip those.
+            orig_idx = 0
+            for fmt_msg in formatted_messages:
+                if fmt_msg.get("role") == "tool":
+                    continue
+                if orig_idx in reasoning_map:
+                    fmt_msg["reasoning_content"] = reasoning_map[orig_idx]
+                orig_idx += 1
+
+            return formatted_messages
+
+    return KimiModel
+
+
+def kimi_model_factory(
+    *,
+    model_id: str = "moonshot/kimi-k2.5",
+    sampling_params: dict[str, Any] = DEFAULT_SAMPLING_PARAMS,
+    client_args: dict[str, Any] | None = None,
+) -> ModelFactory:
+    """Return a factory that creates KimiModel instances for Moonshot AI.
+
+    Requires ``MOONSHOT_API_KEY`` environment variable to be set.
+
+    Args:
+        model_id: LiteLLM model ID with ``moonshot/`` prefix (default ``"moonshot/kimi-k2.5"``).
+        sampling_params: Sampling parameters for the model (e.g. ``{"max_new_tokens": 4096}``).
+        client_args: Arguments for the LiteLLM client.
+    """
+    kimi_model_cls = _get_kimi_model_class()
+
+    sampling_params = dict(sampling_params)
+    if "max_new_tokens" in sampling_params:
+        sampling_params["max_tokens"] = sampling_params.pop("max_new_tokens")
+
+    return lambda: kimi_model_cls(
+        model_id=model_id,
+        params=sampling_params,
+        client_args=client_args,
+    )

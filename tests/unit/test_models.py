@@ -16,6 +16,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from strands_sglang import SGLangClient, SGLangModel
 
 from strands_env.core.models import (
@@ -135,3 +136,53 @@ class TestOpenAIModelFactory:
         original = dict(DEFAULT_SAMPLING_PARAMS)
         openai_model_factory(model_id="gpt-4o")
         assert DEFAULT_SAMPLING_PARAMS == original
+
+
+# ---------------------------------------------------------------------------
+# kimi_model_factory
+# ---------------------------------------------------------------------------
+
+
+try:
+    import litellm  # noqa: F401
+
+    HAS_LITELLM = True
+except ImportError:
+    HAS_LITELLM = False
+
+
+@pytest.mark.skipif(not HAS_LITELLM, reason="litellm not installed")
+class TestKimiModelFactory:
+    def setup_method(self):
+        from strands_env.core.models import kimi_model_factory
+
+        self.kimi_model_factory = kimi_model_factory
+
+    def test_returns_callable(self):
+        factory = self.kimi_model_factory()
+        assert callable(factory)
+
+    def test_remaps_max_new_tokens(self):
+        factory = self.kimi_model_factory(sampling_params={"max_new_tokens": 4096})
+        model = factory()
+        assert model.get_config()["params"]["max_tokens"] == 4096
+        assert "max_new_tokens" not in model.get_config()["params"]
+
+    def test_preserves_reasoning_content(self):
+        """KimiModel._format_regular_messages preserves reasoningContent as top-level field."""
+        from strands_env.core.models import _get_kimi_model_class
+
+        kimi_model_cls = _get_kimi_model_class()
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"reasoningContent": {"reasoningText": {"text": "Let me think..."}}},
+                    {"text": "The answer is 42."},
+                ],
+            }
+        ]
+        formatted = kimi_model_cls._format_regular_messages(messages)
+        assert len(formatted) == 1
+        assert formatted[0]["reasoning_content"] == "Let me think..."
+        assert all("reasoning" not in str(c) for c in formatted[0]["content"])
