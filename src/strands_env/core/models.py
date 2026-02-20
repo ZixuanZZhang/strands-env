@@ -189,41 +189,30 @@ def _get_kimi_model_class():
     class KimiModel(LiteLLMModel):
         @classmethod
         def _format_regular_messages(cls, messages, **kwargs):
-            formatted_messages = []
-
-            for message in messages:
-                contents = message["content"]
-
-                reasoning_parts = []
-                for content in contents:
-                    if "reasoningContent" in content:
-                        reasoning_parts.append(content["reasoningContent"].get("reasoningText", {}).get("text", ""))
-
-                formatted_contents = [
-                    cls.format_request_message_content(content)
-                    for content in contents
-                    if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
+            # Extract reasoning text before super() strips reasoningContent blocks
+            reasoning_map: dict[int, str] = {}
+            for i, message in enumerate(messages):
+                parts = [
+                    content["reasoningContent"].get("reasoningText", {}).get("text", "")
+                    for content in message["content"]
+                    if "reasoningContent" in content
                 ]
-                formatted_tool_calls = [
-                    cls.format_request_message_tool_call(content["toolUse"])
-                    for content in contents
-                    if "toolUse" in content
-                ]
-                formatted_tool_messages = [
-                    cls.format_request_tool_message(content["toolResult"])
-                    for content in contents
-                    if "toolResult" in content
-                ]
+                if any(parts):
+                    reasoning_map[i] = "".join(parts)
 
-                formatted_message: dict[str, Any] = {
-                    "role": message["role"],
-                    "content": formatted_contents,
-                    **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
-                }
-                if reasoning_parts:
-                    formatted_message["reasoning_content"] = "".join(reasoning_parts)
-                formatted_messages.append(formatted_message)
-                formatted_messages.extend(formatted_tool_messages)
+            # Delegate to parent (strips reasoningContent, formats toolUse/toolResult)
+            formatted_messages = super()._format_regular_messages(messages, **kwargs)
+
+            # Re-inject reasoning_content into the corresponding formatted messages.
+            # super() emits one primary message per original message (same role),
+            # plus extra "tool" role messages for toolResult blocks — skip those.
+            orig_idx = 0
+            for fmt_msg in formatted_messages:
+                if fmt_msg.get("role") == "tool":
+                    continue
+                if orig_idx in reasoning_map:
+                    fmt_msg["reasoning_content"] = reasoning_map[orig_idx]
+                orig_idx += 1
 
             return formatted_messages
 
