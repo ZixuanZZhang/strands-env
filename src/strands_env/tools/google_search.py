@@ -75,6 +75,7 @@ class GoogleSearchToolkit:
         timeout: int = DEFAULT_TIMEOUT,
         max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
         semaphore: asyncio.Semaphore | None = None,
+        blocked_domains: list[str] | None = None,
     ):
         """Initialize Google Search Toolkit.
 
@@ -84,6 +85,7 @@ class GoogleSearchToolkit:
             timeout: Request timeout in seconds.
             max_concurrency: Maximum concurrent requests to the Google API (ignored if ``semaphore`` is provided).
             semaphore: Shared semaphore for global rate limiting across multiple toolkit instances in RL training.
+            blocked_domains: Domains to exclude from results (e.g., ``["huggingface.co"]`` to prevent dataset leakage).
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.cse_id = cse_id or os.getenv("GOOGLE_CSE_ID")
@@ -94,6 +96,7 @@ class GoogleSearchToolkit:
 
         self._timeout = timeout
         self._semaphore = semaphore or asyncio.Semaphore(max_concurrency)
+        self._blocked_domains = blocked_domains or []
         self._session: aiohttp.ClientSession | None = None
 
     def _get_session(self) -> aiohttp.ClientSession:
@@ -117,7 +120,11 @@ class GoogleSearchToolkit:
 
         top_k = min(top_k, MAX_RESULTS)
 
+        if self._blocked_domains:
+            query = query + " " + " ".join(f"-site:{d}" for d in self._blocked_domains)
+
         params = {
+            "key": self.api_key,
             "cx": self.cse_id,
             "q": query,
             "num": top_k,
@@ -125,8 +132,7 @@ class GoogleSearchToolkit:
 
         try:
             async with self._semaphore:
-                headers = {"X-goog-api-key": self.api_key}
-                async with self._get_session().get(_GOOGLE_SEARCH_API_URL, params=params, headers=headers) as response:
+                async with self._get_session().get(_GOOGLE_SEARCH_API_URL, params=params) as response:
                     response.raise_for_status()
                     data = await response.json()
 
