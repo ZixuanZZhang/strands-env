@@ -15,7 +15,9 @@
 """Tools for `strands_env`."""
 
 from .code_interpreter import CodeInterpreterToolkit
+from .google_search import GoogleSearchToolkit
 
 __all__ = [
     "CodeInterpreterToolkit",
+    "GoogleSearchToolkit",
 ]
