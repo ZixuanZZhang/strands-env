@@ -296,7 +296,7 @@ def _build_kimi_model_factory(config: ModelConfig, sampling: dict) -> ModelFacto
     """Build Kimi (Moonshot AI) model factory via LiteLLM."""
     import os
 
-    if not os.environ.get("MOONSHOT_API_KEY"):
+    if not os.getenv("MOONSHOT_API_KEY"):
         raise click.ClickException("MOONSHOT_API_KEY environment variable is required for Kimi backend")
 
     return kimi_model_factory(
