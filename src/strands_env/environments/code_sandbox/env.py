@@ -90,7 +90,7 @@ class CodeSandboxEnv(Environment):
         )
         self.mode = mode
         self._toolkit = CodeInterpreterToolkit(
-            client=client or get_client("bedrock-agentcore"), session_name="strands-env-code-sandbox"
+            client=client or get_client(service_name="bedrock-agentcore")
         )
 
     @override

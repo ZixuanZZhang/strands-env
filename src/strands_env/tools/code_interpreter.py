@@ -54,7 +54,7 @@ class CodeInterpreterToolkit:
     def __init__(
         self,
         client: BaseClient,
-        session_name: str = "strands-env-session",
+        session_name: str = "strands-env",
     ):
         """Initialize the toolkit.
 

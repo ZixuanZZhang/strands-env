@@ -28,7 +28,7 @@ def get_session(
     region: str = "us-east-1",
     profile_name: str | None = None,
     role_arn: str | None = None,
-    session_name: str = "StrandsEnvSession",
+    session_name: str = "strands-env",
 ) -> boto3.Session:
     """Create a new boto3 session.
 
@@ -90,7 +90,7 @@ def get_client(
     region: str = "us-east-1",
     profile_name: str | None = None,
     role_arn: str | None = None,
-    session_name: str = "StrandsEnvSession",
+    session_name: str = "strands-env",
 ):
     """Get a cached boto3 client.
 
