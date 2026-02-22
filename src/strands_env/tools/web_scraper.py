@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Web scraper toolkit with LLM-based content extraction.
+"""Web scraper toolkit with optional LLM-based content extraction.
 
 Fetches a web page, extracts main content (stripping nav/sidebar/ads),
 and optionally uses a strands Agent to extract task-relevant information.
@@ -22,32 +22,33 @@ Content extraction pipeline:
   2. html2text: full HTML-to-Markdown conversion (fallback)
 
 Example:
-    >>> from strands.models.bedrock import BedrockModel
     >>> from strands_env.tools import WebScraperToolkit
-    >>> model = BedrockModel(model_id="amazon.nova-lite-v1:0")
-    >>> toolkit = WebScraperToolkit(model=model)
-    >>> result = toolkit.scrape("https://example.com", instruction="What is the main topic?")
+    >>> toolkit = WebScraperToolkit()
+    >>> result = toolkit.scrape("https://example.com")
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import TYPE_CHECKING
 
 import aiohttp
 import html2text
 import trafilatura
-from strands import Agent, tool
+from strands import tool
+
+from strands_env.core import Environment
+from strands_env.core.types import Action
 
 if TYPE_CHECKING:
-    from strands.models import Model
+    from strands_env.core.models import ModelFactory
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30
-MAX_CONTENT_CHARS = 20000
+DEFAULT_MAX_CONCURRENCY = 10
+DEFAULT_TOKEN_BUDGET = 20000
 
 EXTRACTION_PROMPT_TEMPLATE = """Extract information relevant to the following instruction from the web page content below.
 Be concise and focus on facts, data, and key details. Omit navigation, ads, and irrelevant content.
@@ -66,68 +67,83 @@ _REQUEST_HEADERS = {
 
 
 class WebScraperToolkit:
-    """Web scraper with LLM extraction for strands agents.
+    """Web scraper with optional LLM extraction for strands agents.
 
-    Fetches web pages and extracts relevant content using trafilatura for
-    main content extraction and a strands Agent for targeted extraction
-    based on a user-provided instruction.
+    Fetches web pages and extracts relevant content using ``trafilatura``
+    or ``html2text`` for main content extraction.  Optionally uses a LLM
+    summarizer (via ``summarizer_model_factory``).
 
-    Example:
-        from strands.models.bedrock import BedrockModel
-        from strands_env.tools import WebScraperToolkit
+    Two ``@tool`` methods are provided — the environment picks which to
+    expose:
 
-        model = BedrockModel(model_id="amazon.nova-lite-v1:0")
-        toolkit = WebScraperToolkit(model=model)
+    * `scrape` — fetch + extract raw content (no LLM).
+    * `scrape_and_summarize` — fetch + extract + LLM summarization
+      (requires ``summarizer_model_factory``).
 
-        class MyEnv(Environment):
-            def __init__(self, ...):
-                self.toolkit = WebScraperToolkit(model=model)
-
-            def get_tools(self):
-                return [self.toolkit.scrape]
+    A single shared `aiohttp.ClientSession` (created lazily) and
+    an `asyncio.Semaphore` cap concurrent requests.  Call
+    `cleanup` when done to close the session.
     """
 
     def __init__(
         self,
-        model: Model,
-        max_content_chars: int = MAX_CONTENT_CHARS,
+        token_budget: int = DEFAULT_TOKEN_BUDGET,
         timeout: int = DEFAULT_TIMEOUT,
+        max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
+        semaphore: asyncio.Semaphore | None = None,
+        summarizer_model_factory: ModelFactory | None = None,
     ):
         """Initialize Web Scraper Toolkit.
 
         Args:
-            model: A strands Model instance for LLM extraction (e.g. BedrockModel, OpenAIModel).
-            max_content_chars: Max characters of page content to send to LLM.
+            token_budget: Max characters of page content to keep after extraction.
             timeout: HTTP request timeout in seconds.
+            max_concurrency: Max concurrent requests (ignored if *semaphore* is provided).
+            semaphore: Shared semaphore for global rate limiting across toolkit instances.
+            summarizer_model_factory: Optional factory for creating model instances for LLM summarization.
         """
-        self.model = model
-        self.max_content_chars = max_content_chars
-        self.timeout = timeout
+        self._token_budget = token_budget
+        self._timeout = timeout
+        self._semaphore = semaphore or asyncio.Semaphore(max_concurrency)
+        self._session: aiohttp.ClientSession | None = None
+        self._summarizer_model_factory = summarizer_model_factory
 
-        self._scrape = self._create_scrape_tool()
+    def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create the shared HTTP session."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self._timeout))
+        return self._session
 
-    async def _fetch_html(self, url: str) -> str:
-        """Fetch HTML content from URL."""
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                url,
-                headers=_REQUEST_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-            ) as response:
+    async def cleanup(self) -> None:
+        """Close the shared HTTP session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+
+    async def fetch_html(self, url: str) -> str:
+        """Fetch a web page and return the HTML."""
+        async with self._semaphore:
+            async with self._get_session().get(url, headers=_REQUEST_HEADERS) as response:
                 response.raise_for_status()
                 return await response.text()
 
-    @staticmethod
-    def _extract_main_content(html: str, url: str) -> str:
-        """Extract main content from HTML, stripping boilerplate.
+    async def extract_content(self, html: str, url: str) -> str:
+        """Extract main content from HTML, stripping boilerplate and truncating to token budget.
 
-        Uses trafilatura as primary extractor; falls back to html2text
-        for pages where trafilatura returns insufficient content.
+        Uses ``trafilatura`` as primary extractor; falls back to ``html2text``
+        for pages where ``trafilatura`` returns insufficient content.
 
-        A fresh html2text instance is created per call for thread safety
-        (this method runs in a thread pool via asyncio.to_thread).
+        A fresh ``html2text`` instance is created per call for thread safety
+        (this method runs in a thread pool via ``asyncio.to_thread``).
         """
-        content = trafilatura.extract(
+
+        def _truncate(text: str) -> str:
+            if len(text) > self._token_budget:
+                return text[: self._token_budget] + "...(content truncated)"
+            return text
+
+        content = await asyncio.to_thread(
+            trafilatura.extract,
             html,
             url=url,
             include_links=True,
@@ -135,80 +151,78 @@ class WebScraperToolkit:
             output_format="txt",
         )
         if content and len(content.strip()) > 100:
-            return content
+            return _truncate(content)
+
         h2t = html2text.HTML2Text()
         h2t.ignore_links = False
         h2t.ignore_images = True
         h2t.ignore_emphasis = False
         h2t.body_width = 0
-        return h2t.handle(html)
+        content = await asyncio.to_thread(h2t.handle, html)
+        return _truncate(content)
 
-    def _truncate(self, text: str) -> str:
-        """Truncate text to max_content_chars."""
-        if len(text) > self.max_content_chars:
-            return text[: self.max_content_chars] + "\n\n[Content truncated...]"
-        return text
+    async def summarize(self, content: str, instruction: str) -> str:
+        """Use a base ``Environment`` to summarize the content based on the instruction.
 
-    async def _extract_with_llm(self, content: str, instruction: str) -> str:
-        """Use a strands Agent to extract relevant information from content."""
-        prompt = EXTRACTION_PROMPT_TEMPLATE.format(
-            instruction=instruction,
-            content=self._truncate(content),
-        )
-        agent = Agent(model=self.model, callback_handler=None)
-        result = await agent.invoke_async(prompt)
-        return result.message["content"][0]["text"]
+        Uses ``Environment`` for client sharing (e.g. Bedrock) and exception handling.
+        """
+        if self._summarizer_model_factory is None:
+            logger.warning("`summarizer_model_factory` is not set. Returning raw content.")
+            return content
 
-    def _create_scrape_tool(self):
-        """Create scrape tool."""
-        fetch_html = self._fetch_html
-        extract_main_content = self._extract_main_content
-        extract_with_llm = self._extract_with_llm
-        truncate = self._truncate
+        prompt = EXTRACTION_PROMPT_TEMPLATE.format(instruction=instruction, content=content)
+        environment = Environment(model_factory=self._summarizer_model_factory)
+        result = await environment.step(action=Action(message=prompt))
+        return result.observation.final_response or "No summary available."
 
-        @tool
-        async def scrape(url: str, instruction: str = "") -> str:
-            """Fetch a web page and extract relevant information.
+    # ------------------------------------------------------------------
+    # Tools
+    # ------------------------------------------------------------------
 
-            Retrieves the full HTML, converts to text, then optionally uses
-            an LLM agent to extract only the information relevant to the
-            instruction.
+    @tool
+    async def scrape(self, url: str) -> str:
+        """Fetch a web page and extract its main content.
 
-            Args:
-                url: The URL of the web page to scrape.
-                instruction: What information to extract. If provided, an LLM
-                    agent will extract only relevant content. If empty, returns
-                    the raw text (truncated).
+        Retrieves the full HTML, strips boilerplate and returns
+        the extracted content.
 
-            Returns:
-                JSON with the scraped content or an error message.
-            """
-            logger.info(f"[scrape] url={url}, instruction={instruction[:100] if instruction else '(none)'}")
+        Args:
+            url: The URL of the web page to scrape.
 
-            try:
-                html = await fetch_html(url)
-                main_content = await asyncio.to_thread(extract_main_content, html, url)
+        Returns:
+            Extracted page content or an error message.
+        """
+        logger.info(f"[scrape] url={url}")
 
-                if instruction:
-                    content = await extract_with_llm(main_content, instruction)
-                else:
-                    content = truncate(main_content)
+        try:
+            html = await self.fetch_html(url)
+            content = await self.extract_content(html, url)
+            return content
+        except Exception as e:
+            logger.error(f"[scrape] error: url={url}, error={e}")
+            return f"Scrape failed for {url}: {e}"
 
-                return json.dumps({"ScrapedContent": {"url": url, "content": content}})
+    @tool
+    async def scrape_and_summarize(self, url: str, instruction: str) -> str:
+        """Fetch a web page, extract content, and summarize with an LLM.
 
-            except TimeoutError:
-                logger.error(f"[scrape] timeout for url: {url}")
-                return json.dumps({"ScrapedContent": {"url": url, "Error": "Request timeout"}})
-            except aiohttp.ClientResponseError as e:
-                logger.error(f"[scrape] HTTP error for url {url}: {e}")
-                return json.dumps({"ScrapedContent": {"url": url, "Error": f"HTTP {e.status}"}})
-            except Exception as e:
-                logger.error(f"[scrape] error for url {url}: {e}")
-                return json.dumps({"ScrapedContent": {"url": url, "Error": str(e)}})
+        Retrieves the full HTML, strips boilerplate, then uses an LLM agent
+        to extract only the information relevant to the instruction.
 
-        return scrape
+        Args:
+            url: The URL of the web page to scrape.
+            instruction: What information to extract from the page.
 
-    @property
-    def scrape(self):
-        """Get the scrape tool."""
-        return self._scrape
+        Returns:
+            LLM-summarized content or an error message.
+        """
+        logger.info(f"[scrape_and_summarize] url={url}, instruction={instruction[:100]}")
+
+        try:
+            html = await self.fetch_html(url)
+            main_content = await self.extract_content(html, url)
+            content = await self.summarize(main_content, instruction)
+            return content
+        except Exception as e:
+            logger.error(f"[scrape_and_summarize] error: url={url}, error={e}")
+            return f"Scrape failed for {url}: {e}"
