@@ -42,22 +42,6 @@ class WebSearchToolkit:
     separate ``@tool`` method so the environment can pick which one to
     use.  Credentials are validated lazily — only when the corresponding
     tool method is actually called.
-
-    Example::
-
-        from strands_env.tools import WebSearchToolkit
-
-        toolkit = WebSearchToolkit()
-
-        class MyEnv(Environment):
-            def __init__(self, ...):
-                self.toolkit = WebSearchToolkit()
-
-            def get_tools(self):
-                return [self.toolkit.serper_search]
-
-            async def cleanup(self):
-                await self.toolkit.cleanup()
     """
 
     def __init__(
