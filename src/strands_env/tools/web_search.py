@@ -89,10 +89,6 @@ class WebSearchToolkit:
         self._blocked_domains = blocked_domains or []
         self._session: aiohttp.ClientSession | None = None
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _get_session(self) -> aiohttp.ClientSession:
         """Get or create the shared HTTP session."""
         if self._session is None or self._session.closed:
@@ -104,10 +100,6 @@ class WebSearchToolkit:
         if self._blocked_domains:
             return query + " " + " ".join(f"-site:{d}" for d in self._blocked_domains)
         return query
-
-    # ------------------------------------------------------------------
-    # Result formatting hook (subclasses can override this to customize)
-    # ------------------------------------------------------------------
 
     @staticmethod
     def format_results(
