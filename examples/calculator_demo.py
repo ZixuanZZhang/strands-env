@@ -39,7 +39,7 @@ from strands_env.cli.config import ModelConfig, SamplingConfig
 from strands_env.cli.utils import build_model_factory
 from strands_env.core.types import Action, TaskContext
 from strands_env.environments.calculator.env import CalculatorEnv
-from strands_env.rewards.math_reward import MathVerifyReward
+from strands_env.rewards import MathVerifyReward
 
 MATH_PROBLEMS = [
     ("What is 123 * 456?", "56088"),
