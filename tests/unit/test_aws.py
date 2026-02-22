@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import boto3
 
-from strands_env.utils.aws import check_credentials, get_session
+from strands_env.utils.aws import check_credentials, clear_session_cache, get_session
 
 
 class TestGetSession:
@@ -26,7 +26,7 @@ class TestGetSession:
 
     def setup_method(self):
         """Clear cache before each test."""
-        get_session.cache_clear()
+        clear_session_cache()
 
     def test_returns_session(self):
         """Should return a boto3 Session."""
@@ -70,7 +70,7 @@ class TestGetSessionWithRoleAssumption:
 
     def setup_method(self):
         """Clear cache before each test."""
-        get_session.cache_clear()
+        clear_session_cache()
 
     @patch("strands_env.utils.aws.boto3.client")
     @patch("botocore.session.get_session")

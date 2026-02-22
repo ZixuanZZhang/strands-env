@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from strands import tool
 
 if TYPE_CHECKING:
-    import boto3
+    from botocore.client import BaseClient
 
 CODE_INTERPRETER_ID = "aws.codeinterpreter.v1"
 
@@ -34,15 +34,15 @@ class CodeInterpreterToolkit:
     and shell commands in a sandboxed environment.
 
     Example:
-        from strands_env.utils.aws import get_session
+        from strands_env.utils.aws import get_client
 
-        session = get_session(region="us-east-1")
-        toolkit = CodeInterpreterToolkit(boto3_session=session)
+        client = get_client("bedrock-agentcore", region="us-east-1")
+        toolkit = CodeInterpreterToolkit(client=client)
 
         # In environment:
         class MyEnv(Environment):
-            def __init__(self, boto3_session, ...):
-                self.toolkit = CodeInterpreterToolkit(boto3_session)
+            def __init__(self, client, ...):
+                self.toolkit = CodeInterpreterToolkit(client)
 
             def get_tools(self):
                 return [self.toolkit.execute_code, self.toolkit.execute_command]
@@ -53,18 +53,17 @@ class CodeInterpreterToolkit:
 
     def __init__(
         self,
-        boto3_session: boto3.Session,
+        client: BaseClient,
         session_name: str = "strands-env-session",
     ):
         """Initialize the toolkit.
 
         Args:
-            boto3_session: boto3 session for AWS credentials.
+            client: boto3 client for bedrock-agentcore service.
             session_name: Name for the code interpreter session.
         """
-        self.region = boto3_session.region_name
         self.session_name = session_name
-        self._client = boto3_session.client("bedrock-agentcore", region_name=self.region)
+        self._client = client
         self._session_id: str | None = None
         # Adding a session lock here to make sure each CodeInterpreterToolkit only owns one session.
         self._session_lock = asyncio.Lock()
