@@ -106,10 +106,13 @@ class WebSearchToolkit:
         return query
 
     @staticmethod
-    def _format_results(
+    def format_results(
         items: list[dict], *, title_key: str = "title", url_key: str = "link", snippet_key: str = "snippet"
     ) -> str:
-        """Format a list of search result dicts into a numbered text block."""
+        """Format a list of search result dicts into a numbered text block.
+
+        This is a hook method that can be overridden by subclasses to customize the formatting.
+        """
         if not items:
             return "No results found."
         lines = []
@@ -152,7 +155,7 @@ class WebSearchToolkit:
                     response.raise_for_status()
                     data = await response.json()
 
-            return self._format_results(data.get("organic", []))
+            return self.format_results(data.get("organic", []))
         except Exception as e:
             logger.error(f"[serper_search] error: {e}")
             return f"Search failed: {e}."
@@ -191,7 +194,7 @@ class WebSearchToolkit:
                     response.raise_for_status()
                     data = await response.json()
 
-            return self._format_results(data.get("items", []))
+            return self.format_results(data.get("items", []))
         except Exception as e:
             logger.error(f"[google_search] error: {e}")
             return f"Search failed: {e}."
