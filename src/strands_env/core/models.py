@@ -122,6 +122,8 @@ def bedrock_model_factory(
     pre-built client, so we extract it from a pilot instance and override
     ``model.client`` on each subsequent one.
 
+    Principle of operation: "one boto3 session, one boto3 client"
+
     Args:
         model_id: Bedrock model ID (e.g. "us.anthropic.claude-sonnet-4-20250514-v1:0").
         boto_session: Boto3 session for AWS credentials.
