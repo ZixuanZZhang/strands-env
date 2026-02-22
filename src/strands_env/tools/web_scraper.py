@@ -87,25 +87,25 @@ class WebScraperToolkit:
 
     def __init__(
         self,
-        token_budget: int = DEFAULT_TOKEN_BUDGET,
         timeout: int = DEFAULT_TIMEOUT,
         max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
         semaphore: asyncio.Semaphore | None = None,
+        token_budget: int = DEFAULT_TOKEN_BUDGET,
         summarizer_model_factory: ModelFactory | None = None,
     ):
         """Initialize Web Scraper Toolkit.
 
         Args:
-            token_budget: Max characters of page content to keep after extraction.
             timeout: HTTP request timeout in seconds.
             max_concurrency: Max concurrent requests (ignored if *semaphore* is provided).
             semaphore: Shared semaphore for global rate limiting across toolkit instances.
+            token_budget: Max characters of page content to keep after extraction.
             summarizer_model_factory: Optional factory for creating model instances for LLM summarization.
         """
-        self._token_budget = token_budget
         self._timeout = timeout
         self._semaphore = semaphore or asyncio.Semaphore(max_concurrency)
         self._session: aiohttp.ClientSession | None = None
+        self._token_budget = token_budget
         self._summarizer_model_factory = summarizer_model_factory
 
     def _get_session(self) -> aiohttp.ClientSession:
