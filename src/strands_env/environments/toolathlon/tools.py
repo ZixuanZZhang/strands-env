@@ -34,6 +34,9 @@ from typing_extensions import override
 from strands_env.tools.mcp_tool import MCPToolAdapter
 
 
+_MAX_TOOL_OUTPUT_CHARS = 10_000
+
+
 class ToolathlonMCPTool(MCPToolAdapter):
     """MCP tool backed by a stdio `ClientSession`.
 
@@ -44,12 +47,19 @@ class ToolathlonMCPTool(MCPToolAdapter):
     """
 
     def __init__(
-        self, mcp_tool: MCPToolDef, session: ClientSession, *, original_name: str, timeout: int = 60
+        self,
+        mcp_tool: MCPToolDef,
+        session: ClientSession,
+        *,
+        original_name: str,
+        timeout: int = 60,
+        max_output_chars: int = _MAX_TOOL_OUTPUT_CHARS,
     ):
         """Initialize a `ToolathlonMCPTool` instance."""
         super().__init__(mcp_tool, timeout=timedelta(seconds=timeout))
         self._session = session
         self._original_name = original_name
+        self._max_output_chars = max_output_chars
 
     @override
     async def call_tool(
@@ -70,7 +80,16 @@ class ToolathlonMCPTool(MCPToolAdapter):
                 except (json.JSONDecodeError, ValueError):
                     pass
         result = await self._session.call_tool(self._original_name, args, self._timeout)
-        content = [ToolResultContent(text=item.text) for item in result.content if isinstance(item, TextContent)]
+        content: list[ToolResultContent] = []
+        for item in result.content:
+            if isinstance(item, TextContent):
+                text = item.text
+                if len(text) > self._max_output_chars:
+                    text = (
+                        text[: self._max_output_chars]
+                        + f"\n\n[OUTPUT TRUNCATED — showing {self._max_output_chars:,} of {len(item.text):,} chars]"
+                    )
+                content.append(ToolResultContent(text=text))
         status: Literal["success", "error"] = "error" if result.isError else "success"
         return content, status
 
