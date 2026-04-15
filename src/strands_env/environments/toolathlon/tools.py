@@ -35,12 +35,21 @@ from strands_env.tools.mcp_tool import MCPToolAdapter
 
 
 class ToolathlonMCPTool(MCPToolAdapter):
-    """MCP tool backed by a stdio `ClientSession`."""
+    """MCP tool backed by a stdio `ClientSession`.
 
-    def __init__(self, mcp_tool: MCPToolDef, session: ClientSession, *, timeout: int = 60):
+    The strands Agent sees the prefixed name (``{server}_{tool}``) for
+    uniqueness across servers, but the MCP server only knows the original
+    unprefixed name.  ``_original_name`` stores the latter so that
+    ``call_tool`` dispatches correctly.
+    """
+
+    def __init__(
+        self, mcp_tool: MCPToolDef, session: ClientSession, *, original_name: str, timeout: int = 60
+    ):
         """Initialize a `ToolathlonMCPTool` instance."""
         super().__init__(mcp_tool, timeout=timedelta(seconds=timeout))
         self._session = session
+        self._original_name = original_name
 
     @override
     async def call_tool(
@@ -60,7 +69,7 @@ class ToolathlonMCPTool(MCPToolAdapter):
                     args[key] = json.loads(value)
                 except (json.JSONDecodeError, ValueError):
                     pass
-        result = await self._session.call_tool(name, args, self._timeout)
+        result = await self._session.call_tool(self._original_name, args, self._timeout)
         content = [ToolResultContent(text=item.text) for item in result.content if isinstance(item, TextContent)]
         status: Literal["success", "error"] = "error" if result.isError else "success"
         return content, status

@@ -34,7 +34,7 @@ from typing_extensions import NotRequired, Unpack, override
 
 from strands_env.core.environment import Environment, EnvironmentConfig
 from strands_env.core.models import ModelFactory
-from strands_env.core.types import RewardFunction
+from strands_env.core.types import Action, RewardFunction, StepResult
 
 from .reward import ToolathlonRewardFunction
 from .server import GYM_ROOT, run_preprocess, setup_workspace
@@ -97,6 +97,7 @@ class ToolathlonEnvironment(Environment):
         self._exit_stack: contextlib.AsyncExitStack | None = None
         self.mcp_tools: list[ToolathlonMCPTool] = []
         self.local_tools: list[Any] = []
+        self._mock_port: int | None = None
 
     @override
     async def reset(self) -> None:
@@ -117,8 +118,10 @@ class ToolathlonEnvironment(Environment):
         # 3. Setup workspace
         workspace = await setup_workspace(self.task_config)
 
-        # 4. Run preprocess (seed data into rollout database)
-        await asyncio.to_thread(run_preprocess, self.task_config, db_name=self.db_name)
+        # 4. Run preprocess (seed data + mock server in isolated copy)
+        self._mock_port = await asyncio.to_thread(
+            run_preprocess, self.task_config, db_name=self.db_name, temp_dir=self.temp_dir,
+        )
 
         # 5. Start MCP servers and discover tools
         self.mcp_tools = await self._connect_mcp_servers()
@@ -172,6 +175,11 @@ class ToolathlonEnvironment(Environment):
             for client in camel_clients:
                 cfg = client.config
                 env = {**(cfg.env or {}), **db_env}
+                # build_mcp_clients merges os.environ into cfg.env. The host's
+                # PYTHONPATH (e.g. /root/Megatron-LM on GPU pods) shadows
+                # local modules inside Python MCP server venvs. Safe to drop —
+                # uv-run subprocesses manage their own sys.path.
+                env.pop("PYTHONPATH", None)
                 params = StdioServerParameters(
                     command=cfg.command,
                     args=cfg.args or [],
@@ -186,8 +194,13 @@ class ToolathlonEnvironment(Environment):
 
                 result = await session.list_tools()
                 for mcp_tool in result.tools:
+                    original_name = mcp_tool.name
                     mcp_tool.name = f"{server_name}_{mcp_tool.name}"
-                    tools.append(ToolathlonMCPTool(mcp_tool, session, timeout=self.tool_call_timeout))
+                    tools.append(
+                        ToolathlonMCPTool(
+                            mcp_tool, session, original_name=original_name, timeout=self.tool_call_timeout
+                        )
+                    )
 
                 logger.info("Connected MCP server %s: %d tools", server_name, len(result.tools))
         except BaseException:
@@ -202,6 +215,14 @@ class ToolathlonEnvironment(Environment):
     def get_tools(self) -> list:
         """Return MCP tools + local tools discovered during `reset()`."""
         return list(self.mcp_tools) + list(self.local_tools)
+
+    @override
+    async def step(self, action: Action) -> StepResult:
+        """Rewrite mock-server port in the user prompt, then run the agent."""
+        if self._mock_port is not None and isinstance(action.message, str):
+            action = action.model_copy(deep=True)
+            action.message = re.sub(r"localhost:3\d{4}", f"localhost:{self._mock_port}", action.message)
+        return await super().step(action)
 
     @override
     async def cleanup(self) -> None:

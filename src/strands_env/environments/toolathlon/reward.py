@@ -41,10 +41,13 @@ class ToolathlonRewardFunction(RewardFunction):
         """Run evaluation script and return binary reward."""
         assert self._env is not None and self._env.task_config is not None  # noqa: S101
         try:
-            reward = await asyncio.to_thread(
+            reward, info = await asyncio.to_thread(
                 run_evaluation, self._env.task_config, db_name=self._env.db_name,
             )
-            return RewardResult(reward=reward)
+            return RewardResult(reward=reward, info=info)
         except Exception as e:
             logger.exception("Evaluation failed: %s", e)
-            return RewardResult(reward=0.0, info={"error": str(e)})
+            return RewardResult(
+                reward=0.0,
+                info={"outcome": "EVAL_ERROR", "error": str(e), "error_type": type(e).__name__},
+            )
