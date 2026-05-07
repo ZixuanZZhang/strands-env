@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TypeAlias
 
 import boto3
@@ -29,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 BotoClient: TypeAlias = BaseClient
 BotoClientConfig: TypeAlias = Config
+
+
+def _default_region() -> str:
+    """Honor standard AWS env vars; fall back to us-east-1 if neither is set."""
+    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
 
 
 def get_session(
@@ -91,7 +97,7 @@ def create_assumed_role_session(role_arn: str, region: str, session_name: str) -
 @cache_by("service_name", "region", "profile_name", "role_arn", "session_name")
 def get_client(
     service_name: str,
-    region: str = "us-east-1",
+    region: str | None = None,
     profile_name: str | None = None,
     role_arn: str | None = None,
     session_name: str = "strands-env",
@@ -101,7 +107,8 @@ def get_client(
 
     Args:
         service_name: AWS service name (e.g. `"bedrock-agentcore"`, `"lambda"`, `"dynamodb"`).
-        region: AWS region name.
+        region: AWS region name. If `None`, resolved from `AWS_REGION` /
+            `AWS_DEFAULT_REGION` env vars, falling back to `us-east-1`.
         profile_name: Optional AWS profile name from ~/.aws/config.
         role_arn: Optional ARN of the IAM role to assume.
         session_name: Session name for assumed role (only used if role_arn provided).
@@ -110,12 +117,16 @@ def get_client(
 
     Notes:
         - Cached by `(service_name, region, profile_name, role_arn, session_name)`.
-          `config` is excluded from the cache key (not hashable).
+          `config` is excluded from the cache key (not hashable). The cache key
+          uses the *resolved* region (after env-var fallback) so callers that
+          omit `region` still hit the same cache entry for the same env.
         - Each client gets its own dedicated boto3 Session, avoiding the thread-safety
           issues of sharing a Session across clients. The client itself is thread-safe.
         - If `role_arn` is provided, the underlying Session uses `RefreshableCredentials`
           so the client auto-refreshes when credentials expire.
     """
+    if region is None:
+        region = _default_region()
     if role_arn:
         session = create_assumed_role_session(role_arn, region, session_name)
     else:
