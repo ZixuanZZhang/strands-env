@@ -174,6 +174,7 @@ class TerminationReason(str, Enum):
     MAX_TOOL_CALLS_REACHED = "max_tool_calls_reached"
     TIMEOUT = "timeout"
     RECURSION_DEPTH_EXCEEDED = "recursion_depth_exceeded"
+    CONNECTION_ERROR = "connection_error"
     UNCLASSIFIED_ERROR = "unclassified_error"
 
     @classmethod
@@ -182,6 +183,24 @@ class TerminationReason(str, Enum):
         exc = error
         while exc is not None:
             if "timeout" in type(exc).__name__.lower():
+                return True
+            exc = exc.__cause__
+        return False
+
+    @classmethod
+    def _is_connection_error(cls, error: BaseException | None) -> bool:
+        """Check if any exception in the cause chain is a connection-level failure.
+
+        Backend-agnostic name-match (mirrors `_is_timeout`'s pattern). Catches
+        builtin `ConnectionError` family plus aiohttp's `ClientConnectionError`,
+        `ServerDisconnectedError`, `ClientOSError`, and the typed
+        `SGLangConnectionError` wrapper — anything whose type name contains
+        `connection` or `disconnected` (case-insensitive).
+        """
+        exc = error
+        while exc is not None:
+            name = type(exc).__name__.lower()
+            if "connection" in name or "disconnected" in name:
                 return True
             exc = exc.__cause__
         return False
@@ -214,6 +233,8 @@ class TerminationReason(str, Enum):
                 reason = cls.RECURSION_DEPTH_EXCEEDED
             case e if cls._is_timeout(e):
                 reason = cls.TIMEOUT
+            case e if cls._is_connection_error(e):
+                reason = cls.CONNECTION_ERROR
             case _:
                 reason = cls.UNCLASSIFIED_ERROR
 
