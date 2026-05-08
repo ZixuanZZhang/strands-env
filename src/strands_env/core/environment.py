@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any, ClassVar, TypeAlias
@@ -135,9 +136,15 @@ class Environment:
             messages=step_messages, tokens=token_obs, metrics=metrics, routed_experts=routed_experts
         )
         step_result = StepResult(observation=observation, termination_reason=termination_reason)
-        step_result.reward = (
-            (await self.reward_fn.compute(action=action, step_result=step_result)) if self.reward_fn else None
-        )
+        if self.reward_fn:
+            reward_t0 = time.perf_counter()
+            step_result.reward = await self.reward_fn.compute(action=action, step_result=step_result)
+            # Write to observation.metrics (the live dict on the model), not
+            # the local `metrics` — Pydantic v2 deep-copies dicts at model
+            # construction, so the local var is decoupled from the model after
+            # `Observation(...)` returns and downstream consumers only see
+            # observation.metrics.
+            observation.metrics["reward_compute_s"] = round(time.perf_counter() - reward_t0, 4)
         return step_result
 
     async def cleanup(self) -> None:
