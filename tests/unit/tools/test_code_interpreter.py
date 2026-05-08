@@ -169,3 +169,23 @@ class TestCodeInterpreterToolkit:
         # Toolkits 2,3 should start after ~200ms (when 0,1 release their slots)
         assert start_times[2] > 0.15
         assert start_times[3] > 0.15
+
+
+class TestSessionTimeout:
+    """Coverage for the configurable session timeout."""
+
+    async def test_session_timeout_seconds_passed_through(self):
+        """`session_timeout_seconds` is forwarded to start_code_interpreter_session."""
+        client = _mock_client()
+        toolkit = CodeInterpreterToolkit(client=client, session_timeout_seconds=600)
+        await toolkit.invoke("executeCode", {"code": "1", "language": "python"})
+        kwargs = client.start_code_interpreter_session.call_args.kwargs
+        assert kwargs["sessionTimeoutSeconds"] == 600
+
+    async def test_session_timeout_default_unchanged(self):
+        """Default keeps the historical 3600s value when caller doesn't override."""
+        client = _mock_client()
+        toolkit = CodeInterpreterToolkit(client=client)
+        await toolkit.invoke("executeCode", {"code": "1", "language": "python"})
+        kwargs = client.start_code_interpreter_session.call_args.kwargs
+        assert kwargs["sessionTimeoutSeconds"] == 3600

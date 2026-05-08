@@ -35,6 +35,7 @@ class CodeSandboxConfig(EnvironmentConfig, total=False):
     """Serializable configuration for `CodeSandboxEnv`."""
 
     mode: Literal["code", "terminal", "code_and_terminal"]
+    session_timeout_seconds: int
 
 
 class CodeSandboxEnv(Environment):
@@ -59,8 +60,14 @@ class CodeSandboxEnv(Environment):
         """Initialize a `CodeSandboxEnv` instance."""
         super().__init__(model_factory=model_factory, reward_fn=reward_fn, **config)  # type: ignore[misc]
         self.mode: str = self.config.get("mode", "code")
+        toolkit_kwargs: dict = {}
+        if "session_timeout_seconds" in self.config:
+            toolkit_kwargs["session_timeout_seconds"] = self.config["session_timeout_seconds"]
         self._toolkit = CodeInterpreterToolkit(
-            client=client or get_client(service_name="bedrock-agentcore"), session_name="strands-env", quotas=quotas
+            client=client or get_client(service_name="bedrock-agentcore"),
+            session_name="strands-env",
+            quotas=quotas,
+            **toolkit_kwargs,
         )
 
     @override
