@@ -21,8 +21,49 @@ from unittest.mock import MagicMock, patch
 import boto3
 import pytest
 
-from strands_env.utils.aws import check_credentials, get_client, get_session
+from strands_env.utils.aws import check_credentials, get_client, get_session, resolve_region_name
 from strands_env.utils.decorators import cache_by, requires_env, with_timeout
+
+# ===========================================================================
+# AWS — resolve_region_name
+# ===========================================================================
+
+
+class TestResolveRegionName:
+    @pytest.fixture(autouse=True)
+    def _clear_aws_env(self, monkeypatch):
+        for var in ("AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE"):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_explicit_arg_wins_over_env(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "ap-northeast-1")
+        assert resolve_region_name(region_name="ca-central-1") == "ca-central-1"
+
+    def test_aws_region_env(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        assert resolve_region_name() == "eu-west-1"
+
+    def test_aws_default_region_env(self, monkeypatch):
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "ap-northeast-1")
+        assert resolve_region_name() == "ap-northeast-1"
+
+    def test_aws_region_takes_precedence_over_default(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "ap-northeast-1")
+        assert resolve_region_name() == "eu-west-1"
+
+    @patch("strands_env.utils.aws.boto3.Session")
+    def test_falls_back_to_us_east_1_when_unresolved(self, mock_session_cls):
+        mock_session_cls.return_value.region_name = None
+        assert resolve_region_name() == "us-east-1"
+
+    @patch("strands_env.utils.aws.boto3.Session")
+    def test_uses_profile_region_when_envs_unset(self, mock_session_cls):
+        mock_session_cls.return_value.region_name = "sa-east-1"
+        assert resolve_region_name(profile_name="some-profile") == "sa-east-1"
+        mock_session_cls.assert_called_once_with(profile_name="some-profile")
+
 
 # ===========================================================================
 # AWS — get_session
@@ -31,19 +72,19 @@ from strands_env.utils.decorators import cache_by, requires_env, with_timeout
 
 class TestGetSession:
     def test_returns_session(self):
-        session = get_session(region="us-west-2")
+        session = get_session(region_name="us-west-2")
         assert isinstance(session, boto3.Session)
         assert session.region_name == "us-west-2"
 
     def test_fresh_session_each_call(self):
-        session1 = get_session(region="us-east-1")
-        session2 = get_session(region="us-east-1")
+        session1 = get_session(region_name="us-east-1")
+        session2 = get_session(region_name="us-east-1")
         assert session1 is not session2
 
     @patch("strands_env.utils.aws.boto3.Session")
     def test_passes_profile(self, mock_session_cls):
         mock_session_cls.return_value = MagicMock()
-        get_session(region="us-east-1", profile_name="test-profile")
+        get_session(region_name="us-east-1", profile_name="test-profile")
         mock_session_cls.assert_called_once_with(region_name="us-east-1", profile_name="test-profile")
 
 
@@ -73,7 +114,7 @@ class TestGetSessionWithRoleAssumption:
         mock_get_session.return_value = mock_botocore_session
 
         role_arn = "arn:aws:iam::123456789:role/TestRole"
-        session = get_session(region="us-east-1", role_arn=role_arn)
+        session = get_session(region_name="us-east-1", role_arn=role_arn)
 
         mock_boto3_client.assert_called_with("sts", region_name="us-east-1")
         mock_sts.assume_role.assert_called_with(RoleArn=role_arn, RoleSessionName="strands-env")
@@ -118,7 +159,7 @@ class TestGetClient:
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
 
-        client = get_client("s3", region="us-east-1")
+        client = get_client("s3", region_name="us-east-1")
         assert client is mock_session.client.return_value
         mock_session.client.assert_called_once_with("s3", region_name="us-east-1", config=None)
 
@@ -127,8 +168,8 @@ class TestGetClient:
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
 
-        client1 = get_client("s3", region="us-east-1")
-        client2 = get_client("s3", region="us-east-1")
+        client1 = get_client("s3", region_name="us-east-1")
+        client2 = get_client("s3", region_name="us-east-1")
         assert client1 is client2
         assert mock_session_cls.call_count == 1
 
@@ -140,7 +181,7 @@ class TestGetClient:
         mock_session_cls.return_value = mock_session
 
         boto_config = Config(max_pool_connections=20, retries={"max_attempts": 3})
-        client = get_client("s3", region="us-east-1", config=boto_config)
+        client = get_client("s3", region_name="us-east-1", config=boto_config)
         assert client is mock_session.client.return_value
         mock_session.client.assert_called_once_with("s3", region_name="us-east-1", config=boto_config)
 
