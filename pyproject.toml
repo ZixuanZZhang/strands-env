@@ -60,6 +60,11 @@ terminal-bench = [
 ]
 ifeval = ["lm_eval[ifeval]>=0.4.11"]
 agent-world-model = ["agent-world-model==0.1.0; python_version>='3.12'"]
+eks = [
+    "kubernetes_asyncio>=30.0.0",
+    "aiohttp>=3.9.0",
+    "tenacity>=8.0.0",
+]
 
 [tool.hatch.version]
 source = "vcs"
