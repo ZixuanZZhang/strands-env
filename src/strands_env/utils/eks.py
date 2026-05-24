@@ -562,7 +562,9 @@ class EKSPodClient:
 
             from strands_env.utils.aws import get_session
 
-            boto_session = get_session(region=self.region, profile_name=self.profile_name, role_arn=self.role_arn)
+            boto_session = get_session(
+                region_name=self.region, profile_name=self.profile_name, role_arn=self.role_arn
+            )
             eks = boto_session.client("eks", region_name=self.region)
             cluster = eks.describe_cluster(name=self.cluster_name)["cluster"]
             self._endpoint = cluster["endpoint"]
