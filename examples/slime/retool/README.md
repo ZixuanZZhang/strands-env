@@ -1,10 +1,10 @@
 # Retool: RL Training with AWS AgentCore Sandbox
 
-slime-based RL training for math problem solving using `CodeSandboxEnv` (based on AWS AgentCore CodeInterpreter) as a Python execution environment. Training models to leverage code tools to solve math problems.
+slime-based RL training for math problem solving using `AgentCoreCodeEnv` (based on AWS AgentCore CodeInterpreter) as a Python execution environment. Training models to leverage code tools to solve math problems.
 
 ## Files
 
-- **`generate_with_code_sandbox.py`**: Core generation and reward computation logic
+- **`generate_with_agentcore_code.py`**: Core generation and reward computation logic
   - `generate_and_rm()`: Async function that generates responses and computes rewards
   - `rollout_logging_with_tool_stats()`: Custom logging function for tool usage metrics
 
