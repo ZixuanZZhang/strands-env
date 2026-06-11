@@ -7,7 +7,7 @@ An environment for [Terminal-Bench](https://github.com/terminal-bench/terminal-b
 | Backend | Description | Install |
 |---|---|---|
 | `"docker"` (default) | Local Docker via Harbor's `DockerEnvironment` | `pip install strands-env[terminal-bench]` |
-| `"eks"` | AWS EKS/Fargate via [harbor-aws](https://github.com/JackXu0/harbor-aws) | `pip install strands-env[terminal-bench]` |
+| `"e2b"` | [e2b](https://e2b.dev) remote microVM sandbox (uses pre-baked templates) | `pip install strands-env[terminal-bench,e2b]` |
 
 ## Setup
 
@@ -48,7 +48,11 @@ result = await env.step(action)  # action.message = task.instruction
 await env.cleanup()     # Stop and delete container
 ```
 
-### EKS Backend
+### e2b Backend
+
+Requires `E2B_API_KEY` + `E2B_DOMAIN` env vars and a pre-baked templates JSON
+mapping `task_name → template_id` (templates are built out-of-band via the
+older `/templates` route on self-hosted e2b clusters).
 
 ```python
 env = TerminalBenchEnv(
@@ -56,21 +60,11 @@ env = TerminalBenchEnv(
     task_id="task-001",
     task_dir="/path/to/task",
     trial_dir="/path/to/output",
-    backend="eks",
-    eks_backend_config={
-        "stack_name": "harbor-aws",
-        "region": "us-east-1",
-        "role_arn": "arn:aws:iam::123456789012:role/harbor-role",  # optional
+    backend="e2b",
+    e2b_backend_config={
+        "templates_json": "/path/to/templates.json",   # or set E2B_PREBAKED_TEMPLATES_PATH
     },
 )
-```
-
-Or via CLI with `--env-config`:
-
-```bash
-strands-env eval run terminal-bench-2 \
-    --env examples.eval.terminal_bench.terminal_bench_env \
-    --env-config '{"backend": "eks", "eks_backend_config": {"stack_name": "harbor-aws", "region": "us-east-1", "role_arn": "arn:aws:iam::123456789012:role/harbor-role"}}'
 ```
 
 ## Tools

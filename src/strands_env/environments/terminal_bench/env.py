@@ -25,7 +25,6 @@ from harbor.models.environment_type import EnvironmentType
 from harbor.models.task.config import EnvironmentConfig as _HarborEnvironmentConfig
 from harbor.models.task.paths import TaskPaths
 from harbor.models.trial.paths import TrialPaths
-from harbor_aws.adapter import AWSEnvironment
 from strands import tool
 from typing_extensions import NotRequired, TypedDict, Unpack, override
 
@@ -48,25 +47,40 @@ class TerminalBenchConfig(EnvironmentConfig):
 
     Backends:
         - "docker": Local Docker via `harbor`'s native `DockerEnvironment`.
-        - "eks": AWS EKS/Fargate via `harbor-aws`'s `AWSEnvironment`.
+        - "e2b": e2b sandbox via `harbor.environments.e2b.E2BEnvironment`.
+            Endpoint + auth come from env vars `E2B_DOMAIN` / `E2B_API_KEY`
+            (the e2b SDK reads these). Self-hosted clusters that haven't
+            back-ported the upstream `/v3/templates` route must additionally
+            supply `E2B_PREBAKED_TEMPLATES_PATH` pointing at a
+            `{task_name: template_id}` JSON produced by an out-of-band bake.
     """
 
     task_id: str
     task_dir: str
     trial_dir: str
     timeout: NotRequired[int]
-    backend: NotRequired[Literal["docker", "eks"]]
+    backend: NotRequired[Literal["docker", "e2b"]]
     harbor_env_config: NotRequired[HarborEnvironmentConfig]
-    eks_backend_config: NotRequired[EKSBackendConfig]
+    e2b_backend_config: NotRequired[E2bBackendConfig]
 
 
-class EKSBackendConfig(TypedDict, total=False):
-    """Configuration for the EKS backend (harbor-aws)."""
+class E2bBackendConfig(TypedDict, total=False):
+    """Configuration for the e2b backend.
 
-    stack_name: str
-    region: str
-    ecr_cache: bool
-    role_arn: str | None
+    Endpoint + auth (`E2B_DOMAIN`, `E2B_API_KEY`) come from process env vars;
+    the e2b SDK reads them automatically. Fields below are e2b-specific
+    config not in the standard env-var set.
+    """
+
+    # Pre-baked template id for the task. Optional: when omitted, the adapter
+    # resolves the id from `templates_json` (or `E2B_PREBAKED_TEMPLATES_PATH`)
+    # using the task name as the lookup key. Provide explicitly only when
+    # overriding the bake mapping for a one-off.
+    template_id: str
+    # Path to templates.json produced by the bake script. Falls back to env var
+    # `E2B_PREBAKED_TEMPLATES_PATH` when unset. Required (via either source)
+    # unless `template_id` is provided directly.
+    templates_json: str
 
 
 class TerminalBenchEnv(Environment):
@@ -87,12 +101,12 @@ class TerminalBenchEnv(Environment):
         self.task_paths = TaskPaths(Path(str(self.config["task_dir"])))
         self.trial_paths = TrialPaths(Path(str(self.config["trial_dir"])))
         self.timeout: int = int(self.config.get("timeout", 1200))
-        self.backend: Literal["docker", "eks"] = self.config.get("backend", "docker")
+        self.backend: Literal["docker", "e2b"] = self.config.get("backend", "docker")
         self.harbor_env_config: HarborEnvironmentConfig = self.config.get(
             "harbor_env_config", HarborEnvironmentConfig()
         )
-        self.eks_backend_config: EKSBackendConfig = self.config.get("eks_backend_config", {})
-        self.docker_env: HarborEnvironment | AWSEnvironment | None = None
+        self.e2b_backend_config: E2bBackendConfig = self.config.get("e2b_backend_config", {})
+        self.docker_env: HarborEnvironment | None = None
         self.reward_fn = reward_fn or TerminalBenchReward(self)
 
     @override
@@ -101,6 +115,7 @@ class TerminalBenchEnv(Environment):
         self.trial_paths.mkdir()
         session_id = f"{self.task_id}-{uuid.uuid4().hex[:8]}"
 
+        force_build = True
         match self.backend:
             case "docker":
                 self.docker_env = EnvironmentFactory.create_environment(
@@ -111,20 +126,30 @@ class TerminalBenchEnv(Environment):
                     trial_paths=self.trial_paths,
                     task_env_config=self.harbor_env_config,
                 )
-            case "eks":
-                from ._harbor_aws import ensure_harbor_aws_session
+            case "e2b":
+                # Self-hosted e2b api forks lacking `/v3/templates` (which Harbor's
+                # E2BEnvironment._create_template calls) need templates baked
+                # out-of-band. PreBakedE2BEnvironment looks up the pre-baked id
+                # and skips the auto-build path. See _e2b_pre_baked.py.
+                from ._e2b_pre_baked import PreBakedE2BEnvironment, resolve_template_id
 
-                await ensure_harbor_aws_session()
-                self.docker_env = AWSEnvironment(
+                template_id = self.e2b_backend_config.get("template_id") or resolve_template_id(
+                    task_name=self.task_id,
+                    template_map_path=self.e2b_backend_config.get("templates_json"),
+                )
+                # force_build is ignored by PreBakedE2BEnvironment; templates
+                # are static once baked. Re-bake out-of-band to refresh.
+                force_build = False
+                self.docker_env = PreBakedE2BEnvironment(
                     environment_dir=self.task_paths.environment_dir,
                     environment_name=session_id,
                     session_id=session_id,
                     trial_paths=self.trial_paths,
                     task_env_config=self.harbor_env_config,
-                    **self.eks_backend_config,
+                    template_id=template_id,
                 )
 
-        await self.docker_env.start(force_build=True)
+        await self.docker_env.start(force_build=force_build)
 
     @tool
     async def execute_command(self, command: str) -> str:
