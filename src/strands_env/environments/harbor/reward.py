@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from harbor.models.trial.paths import EnvironmentPaths
@@ -27,6 +29,13 @@ if TYPE_CHECKING:
     from .env import HarborEnv
 
 logger = logging.getLogger(__name__)
+
+# Tasks adapted from SETA's `Harbor-Dataset` ship a `test.sh` that aborts when
+# `$PWD = "/"`. Docker inherits the image's `WORKDIR` as the exec cwd, but the
+# e2b backend defaults to `/`, so we resolve `WORKDIR` from the Dockerfile and
+# `cd` into it before invoking `test.sh`. Tasks without a Dockerfile / WORKDIR
+# stay at the inherited cwd.
+_DOCKERFILE_WORKDIR_RE = re.compile(r"^\s*WORKDIR\s+(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 class HarborReward(RewardFunction):
@@ -55,8 +64,13 @@ class HarborReward(RewardFunction):
 
         # Upload and run tests.
         await sandbox.upload_dir(source_dir=task_paths.tests_dir, target_dir="/tests")
+        # `mkdir -p` covers backends that don't pre-create the Harbor log dirs.
+        # `cd` honors the image's `WORKDIR` so SETA's `test.sh` PWD guard passes.
+        workdir = self._resolve_workdir(Path(self._env.config["task_dir"]))
+        cd_prefix = f"cd {workdir} && " if workdir and workdir != "/" else ""
         test_cmd = (
-            'export PATH="$HOME/.local/bin:$PATH" && '
+            f"mkdir -p {EnvironmentPaths.verifier_dir} {EnvironmentPaths.agent_dir} && "
+            f'{cd_prefix}export PATH="$HOME/.local/bin:$PATH" && '
             f"bash /tests/test.sh 2>&1 | tee {EnvironmentPaths.verifier_dir}/test-stdout.txt"
         )
         await sandbox.exec(test_cmd, timeout_sec=timeout)
@@ -73,3 +87,17 @@ class HarborReward(RewardFunction):
         if reward_path.exists() and reward_path.stat().st_size > 0:
             return 1.0 if float(reward_path.read_text().strip()) >= 1.0 else 0.0
         raise RuntimeError(f"verification produced no reward file at {reward_path}")
+
+    @staticmethod
+    def _resolve_workdir(task_dir: Path) -> str | None:
+        """Return the last `WORKDIR` declared in the task's Dockerfile, or None.
+
+        Searches the standard Harbor task layout (`<task_dir>/environment/Dockerfile`).
+        Multi-stage builds: the last match wins (consistent with Docker semantics —
+        the final stage's WORKDIR is what `exec` inherits).
+        """
+        dockerfile = task_dir / "environment" / "Dockerfile"
+        if not dockerfile.exists():
+            return None
+        matches = _DOCKERFILE_WORKDIR_RE.findall(dockerfile.read_text())
+        return matches[-1] if matches else None
