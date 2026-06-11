@@ -23,8 +23,7 @@ from strands_env.core.environment import Environment, EnvironmentConfig
 from strands_env.core.models import ModelFactory
 from strands_env.core.types import RewardFunction
 
-from .scrape import WebScraperToolkit
-from .search import WebSearchAPIProvider, WebSearchToolkit
+from .tools import WebScraperToolkit, WebSearchAPIProvider, WebSearchToolkit
 
 
 class WebSearchConfig(EnvironmentConfig, total=False):
