@@ -54,4 +54,6 @@ For each step:
 3. Execute the necessary command(s)
 4. Interpret the results and determine next steps
 
-When you have completed the task, provide a clear summary of what was accomplished.
+## Finishing the Task
+
+When the task is complete, reply with a plain-text summary of what was accomplished and **do not emit any tool call in that final message**. The agent loop ends as soon as your reply contains no tool call.
