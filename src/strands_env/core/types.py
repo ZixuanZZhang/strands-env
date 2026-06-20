@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Core types for Strands Agents Environments: actions, observations, rewards, model config, and step result."""
+"""Core types for Strands Agents Environments: tasks, rewards, model config, and rollout results."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from strands_sglang import MaxToolCallsReachedError, MaxToolIterationsReachedErr
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Action
+# Task (input to a rollout)
 # ---------------------------------------------------------------------------
 
 
@@ -42,52 +42,20 @@ class TaskContext(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     ground_truth: Any = None
     conversation_history: Messages = Field(default_factory=list)
 
 
-class Action(BaseModel):
-    """A single task: the message to send and the context needed for reward computation."""
+class Task(BaseModel):
+    """A single task: an `id`, the message to send, and the context needed for reward computation."""
 
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     message: str | Message = Field(..., description="The message/prompt to send to the agent.")
-    task_context: TaskContext = Field(default_factory=TaskContext)
+    context: TaskContext = Field(default_factory=TaskContext)
 
 
 # ---------------------------------------------------------------------------
-# Observation
-# ---------------------------------------------------------------------------
-
-
-class Observation(BaseModel):
-    """Step observation: messages produced, optional token data, and metrics."""
-
-    messages: Messages = Field(default_factory=list)
-    rollout: Rollout | None = None
-    metrics: dict[str, Any] = Field(default_factory=dict)
-
-    @property
-    def final_response(self) -> str | None:
-        """Return text from the last assistant message, or None."""
-        if not self.messages or self.messages[-1].get("role") != "assistant":
-            return None
-        content = self.messages[-1].get("content", [])
-        # Take the last text block — the final textual output.
-        text = next(
-            (block["text"] for block in reversed(content) if isinstance(block, dict) and "text" in block),
-            None,
-        )
-        if text is None:
-            return None
-        # Strip think block if any
-        think_end = text.rfind("</think>")  # find the last </think> tag
-        if think_end != -1:
-            text = text[think_end + len("</think>") :].lstrip()
-        return text or None
-
-
-# ---------------------------------------------------------------------------
-# Reward
+# Reward (for a rollout)
 # ---------------------------------------------------------------------------
 
 
@@ -102,13 +70,13 @@ class RewardFunction(ABC):
     """Abstract reward function. Subclass and implement `compute`."""
 
     @abstractmethod
-    async def compute(self, action: Action, step_result: StepResult) -> RewardResult:
-        """Return a `RewardResult` given the action and the environment's step result."""
+    async def compute(self, task: Task, result: RolloutResult) -> RewardResult:
+        """Return a `RewardResult` given the task and the rollout result."""
         ...
 
 
 # ---------------------------------------------------------------------------
-# Step result
+# Termination reason (why a rollout ended)
 # ---------------------------------------------------------------------------
 
 
@@ -180,13 +148,39 @@ class TerminationReason(str, Enum):
             case _:
                 reason = cls.UNCLASSIFIED_ERROR
 
-        logger.warning("Step terminated: %s - %s", reason.value, cause)
+        logger.warning("Rollout terminated: %s - %s", reason.value, cause)
         return reason
 
 
-class StepResult(BaseModel):
-    """Result of a single `Environment.step` call."""
+# ---------------------------------------------------------------------------
+# Rollout result (output of a rollout)
+# ---------------------------------------------------------------------------
 
-    observation: Observation
+
+class RolloutResult(BaseModel):
+    """Result of a single `Environment.rollout` call: trajectory, reward, and termination."""
+
+    messages: Messages = Field(default_factory=list)
+    rollout: Rollout | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
     reward: RewardResult | None = None
     termination_reason: TerminationReason = TerminationReason.NOT_TERMINATED
+
+    @property
+    def final_response(self) -> str | None:
+        """Return text from the last assistant message, or None."""
+        if not self.messages or self.messages[-1].get("role") != "assistant":
+            return None
+        content = self.messages[-1].get("content", [])
+        # Take the last text block — the final textual output.
+        text = next(
+            (block["text"] for block in reversed(content) if isinstance(block, dict) and "text" in block),
+            None,
+        )
+        if text is None:
+            return None
+        # Strip think block if any
+        think_end = text.rfind("</think>")  # find the last </think> tag
+        if think_end != -1:
+            text = text[think_end + len("</think>") :].lstrip()
+        return text or None

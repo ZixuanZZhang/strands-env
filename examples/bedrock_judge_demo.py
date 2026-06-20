@@ -33,7 +33,7 @@ import boto3
 import click
 from strands.models.bedrock import BedrockModel
 
-from strands_env.core.types import Action, Observation, StepResult, TaskContext, TerminationReason
+from strands_env.core.types import RolloutResult, Task, TaskContext, TerminationReason
 from strands_env.eval.benchmarks.simpleqa_verified import SimpleQAReward
 
 # ---------------------------------------------------------------------------
@@ -48,12 +48,10 @@ TEST_CASES = [
 ]
 
 
-def create_mock_step_result(response: str) -> StepResult:
-    """Create a mock StepResult with the given response."""
-    return StepResult(
-        observation=Observation(
-            messages=[{"role": "assistant", "content": [{"text": response}]}],
-        ),
+def create_mock_rollout_result(response: str) -> RolloutResult:
+    """Create a mock RolloutResult with the given response."""
+    return RolloutResult(
+        messages=[{"role": "assistant", "content": [{"text": response}]}],
         termination_reason=TerminationReason.TASK_COMPLETE,
     )
 
@@ -78,17 +76,17 @@ async def run_demo(model_id: str) -> None:
         click.echo(f"Response:     {response}")
         click.echo("-" * 60)
 
-        action = Action(message=question, task_context=TaskContext(ground_truth=ground_truth))
-        step_result = create_mock_step_result(response)
+        task = Task(message=question, context=TaskContext(ground_truth=ground_truth))
+        result = create_mock_rollout_result(response)
 
-        result = await reward_fn.compute(action, step_result)
+        reward = await reward_fn.compute(task, result)
 
-        click.echo(f"Reward:       {result.reward}")
-        if result.info.get("status") == "success":
-            judgment = result.info["judgment"]
+        click.echo(f"Reward:       {reward.reward}")
+        if reward.info.get("status") == "success":
+            judgment = reward.info["judgment"]
             click.echo(f"Grade:        {judgment.get('grade', 'N/A')}")
         else:
-            click.echo(f"Error:        {result.info.get('error_type')}: {result.info.get('error')}")
+            click.echo(f"Error:        {reward.info.get('error_type')}: {reward.info.get('error')}")
 
 
 @click.command()

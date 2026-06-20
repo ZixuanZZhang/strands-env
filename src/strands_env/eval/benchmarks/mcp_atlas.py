@@ -23,7 +23,7 @@ from collections.abc import Iterable
 
 from typing_extensions import override
 
-from strands_env.core import Action, AsyncEnvFactory, TaskContext
+from strands_env.core import AsyncEnvFactory, Task, TaskContext
 from strands_env.eval import EvalSample, Evaluator
 
 from ..registry import register_eval
@@ -89,10 +89,10 @@ class MCPAtlasEvaluator(Evaluator):
         self._available_servers = available_servers
 
     @override
-    async def run(self, actions: Iterable[Action]) -> dict[str, list[EvalSample]]:
+    async def run(self, tasks: Iterable[Task]) -> dict[str, list[EvalSample]]:
         """Run evaluation, closing any shared HTTP client at the end."""
         try:
-            return await super().run(actions)
+            return await super().run(tasks)
         finally:
             http_client = getattr(self.env_factory, "http_client", None)
             if http_client is not None:
@@ -101,19 +101,19 @@ class MCPAtlasEvaluator(Evaluator):
     @override
     def validate_sample(self, sample: EvalSample) -> bool:
         """Abort samples where reward is missing or judge failed, so they are retried on resume."""
-        reward = sample.step_result.reward
+        reward = sample.result.reward
         if reward is None:
             return False
         return reward.info.get("status") != "error"
 
     @override
-    def load_dataset(self) -> Iterable[Action]:
+    def load_dataset(self) -> Iterable[Task]:
         """Load MCP-Atlas tasks from HuggingFace, filter by available servers."""
         from datasets import load_dataset
 
         ds = load_dataset("ScaleAI/MCP-Atlas", split="train")
 
-        actions = []
+        tasks = []
         skipped = 0
         for row in ds:
             # ENABLED_TOOLS items are plain strings or dicts with a "name" key.
@@ -130,16 +130,15 @@ class MCPAtlasEvaluator(Evaluator):
             gtfa_claims = ast.literal_eval(row["GTFA_CLAIMS"].replace("\n", "\\n"))
 
             ctx = MCPAtlasTaskContext(
-                id=row["TASK"],
                 enabled_tools=enabled_tools,
                 gtfa_claims=gtfa_claims,
                 ground_truth=row["PROMPT"],
             )
-            actions.append(Action(message=row["PROMPT"], task_context=ctx))
+            tasks.append(Task(id=row["TASK"], message=row["PROMPT"], context=ctx))
 
         logger.info(
             "MCP-Atlas: loaded %d tasks (%d skipped — require unavailable servers)",
-            len(actions),
+            len(tasks),
             skipped,
         )
-        return actions
+        return tasks

@@ -22,10 +22,9 @@ from strands.types.exceptions import (
 from strands_sglang import MaxToolCallsReachedError, MaxToolIterationsReachedError
 
 from strands_env.core.types import (
-    Action,
-    Observation,
     RewardResult,
-    StepResult,
+    RolloutResult,
+    Task,
     TaskContext,
     TerminationReason,
 )
@@ -49,35 +48,35 @@ class TestTaskContext:
 
 
 # ---------------------------------------------------------------------------
-# Action
+# Task
 # ---------------------------------------------------------------------------
 
 
-class TestAction:
+class TestTask:
     def test_string_message(self):
-        action = Action(message="What is 2+2?")
-        assert action.message == "What is 2+2?"
-        assert action.task_context.ground_truth is None
+        task = Task(message="What is 2+2?")
+        assert task.message == "What is 2+2?"
+        assert task.context.ground_truth is None
 
     def test_with_context(self):
         ctx = TaskContext(ground_truth="4")
-        action = Action(message="What is 2+2?", task_context=ctx)
-        assert action.task_context.ground_truth == "4"
+        task = Task(message="What is 2+2?", context=ctx)
+        assert task.context.ground_truth == "4"
 
 
 # ---------------------------------------------------------------------------
-# Observation
+# RolloutResult
 # ---------------------------------------------------------------------------
 
 
-class TestObservation:
+class TestRolloutResult:
     def test_final_response_from_assistant(self):
         messages = [
             {"role": "user", "content": [{"text": "hi"}]},
             {"role": "assistant", "content": [{"text": "hello"}, {"text": "world"}]},
         ]
-        obs = Observation(messages=messages)
-        assert obs.final_response == "world"
+        result = RolloutResult(messages=messages)
+        assert result.final_response == "world"
 
     def test_final_response_strips_think_tags(self):
         messages = [
@@ -86,8 +85,8 @@ class TestObservation:
                 "content": [{"text": "<think>reasoning here</think>The actual answer"}],
             },
         ]
-        obs = Observation(messages=messages)
-        assert obs.final_response == "The actual answer"
+        result = RolloutResult(messages=messages)
+        assert result.final_response == "The actual answer"
 
     def test_final_response_strips_nested_think_tags(self):
         messages = [
@@ -96,17 +95,17 @@ class TestObservation:
                 "content": [{"text": "<think>first</think>middle<think>second</think>final answer"}],
             },
         ]
-        obs = Observation(messages=messages)
-        assert obs.final_response == "final answer"
+        result = RolloutResult(messages=messages)
+        assert result.final_response == "final answer"
 
     def test_final_response_no_assistant(self):
         messages = [{"role": "user", "content": [{"text": "hi"}]}]
-        obs = Observation(messages=messages)
-        assert obs.final_response is None
+        result = RolloutResult(messages=messages)
+        assert result.final_response is None
 
     def test_final_response_empty(self):
-        obs = Observation()
-        assert obs.final_response is None
+        result = RolloutResult()
+        assert result.final_response is None
 
     def test_final_response_skips_non_text_blocks(self):
         messages = [
@@ -118,8 +117,19 @@ class TestObservation:
                 ],
             },
         ]
-        obs = Observation(messages=messages)
-        assert obs.final_response == "result is 4"
+        result = RolloutResult(messages=messages)
+        assert result.final_response == "result is 4"
+
+    def test_defaults(self):
+        result = RolloutResult()
+        assert result.reward is None
+        assert result.termination_reason == TerminationReason.NOT_TERMINATED
+
+    def test_with_reward(self):
+        reward = RewardResult(reward=1.0, info={"exact_match": True})
+        result = RolloutResult(reward=reward)
+        assert result.reward.reward == 1.0
+        assert result.reward.info["exact_match"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -204,23 +214,3 @@ class TestTerminationReason:
     def test_non_event_loop_exception(self):
         error = RuntimeError("direct error")
         assert TerminationReason.from_error(error) == TerminationReason.UNCLASSIFIED_ERROR
-
-
-# ---------------------------------------------------------------------------
-# StepResult
-# ---------------------------------------------------------------------------
-
-
-class TestStepResult:
-    def test_defaults(self):
-        obs = Observation()
-        result = StepResult(observation=obs)
-        assert result.reward is None
-        assert result.termination_reason == TerminationReason.NOT_TERMINATED
-
-    def test_with_reward(self):
-        obs = Observation()
-        reward = RewardResult(reward=1.0, info={"exact_match": True})
-        result = StepResult(observation=obs, reward=reward)
-        assert result.reward.reward == 1.0
-        assert result.reward.info["exact_match"] is True

@@ -17,7 +17,7 @@
 This example demonstrates:
 - Creating a model factory
 - Instantiating an environment with tools
-- Running steps and inspecting results
+- Running rollouts and inspecting results
 
 Usage:
     # SGLang backend (requires a running SGLang server)
@@ -36,7 +36,7 @@ from typing import Literal
 import click
 
 from strands_env.core.models import ModelConfig, build_model_factory
-from strands_env.core.types import Action, TaskContext
+from strands_env.core.types import Task, TaskContext
 from strands_env.environments.calculator import CalculatorEnv, MathVerifyReward
 
 MATH_PROBLEMS = [
@@ -76,13 +76,13 @@ async def run_demo(
         click.echo(f"Expected: {ground_truth}")
         click.echo("-" * 60)
 
-        action = Action(message=question, task_context=TaskContext(ground_truth=ground_truth))
-        result = await env.step(action)
+        task = Task(message=question, context=TaskContext(ground_truth=ground_truth))
+        result = await env.rollout(task)
 
         click.echo(f"Termination: {result.termination_reason.value}")
-        click.echo(f"Response:    {result.observation.final_response}")
+        click.echo(f"Response:    {result.final_response}")
         click.echo(f"Reward:      {result.reward.reward if result.reward else None}")
-        click.echo(f"Metrics:     {result.observation.metrics}")
+        click.echo(f"Metrics:     {result.metrics}")
 
 
 @click.command()

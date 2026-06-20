@@ -24,10 +24,10 @@ import os
 
 import pytest
 
-from strands_env.core.types import Action, TerminationReason
+from strands_env.core.types import Task, TerminationReason
 from strands_env.environments.web_search import WebSearchEnv
 
-from .conftest import assert_successful_step
+from .conftest import assert_successful_rollout
 
 serper_available = pytest.mark.skipif(not os.getenv("SERPER_API_KEY"), reason="SERPER_API_KEY not set")
 google_available = pytest.mark.skipif(
@@ -42,10 +42,10 @@ class TestSerperWebSearchEnv:
         """Agent searches the web, produces a response, and reports metrics."""
         env = WebSearchEnv(model_factory=model_factory)
         try:
-            result = await env.step(Action(message="What is the capital of France?"))
+            result = await env.rollout(Task(message="What is the capital of France?"))
 
-            assert_successful_step(result)
-            assert result.observation.metrics["model_calls"] >= 1
+            assert_successful_rollout(result)
+            assert result.metrics["model_calls"] >= 1
         finally:
             await env.cleanup()
 
@@ -53,8 +53,8 @@ class TestSerperWebSearchEnv:
         """Agent can search and scrape pages when scrape_config is provided."""
         env = WebSearchEnv(model_factory=model_factory, scrape_enabled=True)
         try:
-            result = await env.step(Action(message="What is the population of Tokyo?"))
-            assert_successful_step(result)
+            result = await env.rollout(Task(message="What is the population of Tokyo?"))
+            assert_successful_rollout(result)
         finally:
             await env.cleanup()
 
@@ -62,8 +62,8 @@ class TestSerperWebSearchEnv:
         """max_tool_iters constrains the search agent."""
         env = WebSearchEnv(model_factory=model_factory, max_tool_iters=1)
         try:
-            result = await env.step(
-                Action(
+            result = await env.rollout(
+                Task(
                     message=(
                         "Search for 10 different topics: Python, Java, Rust, Go, C++, "
                         "Ruby, PHP, Swift, Kotlin, Scala. Search each one separately."
@@ -84,7 +84,7 @@ class TestGoogleWebSearchEnv:
         """Agent can search with Google Custom Search and produce a response."""
         env = WebSearchEnv(model_factory=model_factory, search_provider="google")
         try:
-            result = await env.step(Action(message="What is the speed of light?"))
-            assert_successful_step(result)
+            result = await env.rollout(Task(message="What is the speed of light?"))
+            assert_successful_rollout(result)
         finally:
             await env.cleanup()

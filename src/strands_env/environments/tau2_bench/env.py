@@ -14,7 +14,7 @@
 
 """tau2-bench environment.
 
-Multi-turn agent vs LLM user-sim over a shared in-memory DB. One `env.step()`
+Multi-turn agent vs LLM user-sim over a shared in-memory DB. One `env.rollout()`
 runs the full episode inside a single `agent.invoke_async()`, driven turn-by-turn
 by `Tau2BenchUserSimHook` via `AfterInvocationEvent.resume` (strands-agents >= 1.30.0).
 """
@@ -35,9 +35,9 @@ from strands.hooks import AfterInvocationEvent, HookProvider, HookRegistry
 from strands.telemetry.metrics import EventLoopMetrics
 from typing_extensions import NotRequired, Unpack, override
 
-from strands_env.core import Action, Environment, ModelFactory
+from strands_env.core import Environment, ModelFactory, Task
 from strands_env.core.environment import EnvironmentConfig
-from strands_env.core.types import RewardFunction, StepResult
+from strands_env.core.types import RewardFunction, RolloutResult
 
 from .reward import Tau2BenchReward
 from .tool import Tau2BenchTool
@@ -122,7 +122,7 @@ class Tau2BenchUserSimHook(HookProvider):
             return
         if USER_STOP_RE.search(user_text):
             self.termination = "user_stop"
-            # Append the terminating user msg so it shows up in `observation.messages`.
+            # Append the terminating user msg so it shows up in `result.messages`.
             event.agent.messages.append({"role": "user", "content": [{"text": user_text}]})
             return
         event.resume = user_text
@@ -165,9 +165,9 @@ class Tau2BenchEnv(Environment):
     @override
     async def reset(self) -> None:
         """Build per-episode tau2 environment and prime the user-sim."""
-        from tau2.data_model.tasks import Task  # type: ignore[import-not-found]
+        from tau2.data_model.tasks import Task as Tau2Task  # type: ignore[import-not-found]
 
-        task_obj = Task.model_validate(self.task)
+        task_obj = Tau2Task.model_validate(self.task)
         tau2_env = build_tau2_env(self.domain, self.initial_db, task_obj)
         self.tau2_env = tau2_env
         self.agent_tools = [Tau2BenchTool(t, tau2_env, "assistant") for t in tau2_env.tools.get_tools().values()]
@@ -192,7 +192,7 @@ class Tau2BenchEnv(Environment):
                 instructions=str(task_obj.user_scenario),
             ),
             conversation_manager=NullConversationManager(),
-            # Mirror base `step()`'s callback handling; default `None` silences user-sim stream.
+            # Mirror base `rollout()`'s callback handling; default `None` silences user-sim stream.
             callback_handler=PrintingCallbackHandler() if self.verbose else None,
         )
         # User-sim's reply to the canned greeting seeds the agent's first invoke;
@@ -201,13 +201,11 @@ class Tau2BenchEnv(Environment):
         self.user_sim_hook = Tau2BenchUserSimHook(self.user_sim, self.max_turns)
 
     @override
-    async def step(self, action: Action) -> StepResult:
-        """Inject `first_user_msg` and the canned greeting history into the action."""
-        action.message = self.first_user_msg
-        action.task_context.conversation_history = [
-            {"role": "assistant", "content": [{"text": DEFAULT_FIRST_AGENT_MESSAGE}]}
-        ]
-        return await super().step(action)
+    async def rollout(self, task: Task) -> RolloutResult:
+        """Inject `first_user_msg` and the canned greeting history into the task."""
+        task.message = self.first_user_msg
+        task.context.conversation_history = [{"role": "assistant", "content": [{"text": DEFAULT_FIRST_AGENT_MESSAGE}]}]
+        return await super().rollout(task)
 
     @override
     def get_tools(self) -> list:

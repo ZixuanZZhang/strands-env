@@ -16,7 +16,7 @@
 
 This example demonstrates:
 - Creating a WebSearchEnv with search + scrape tools
-- Running steps and inspecting results
+- Running rollouts and inspecting results
 - Cleaning up HTTP sessions
 
 Requires SERPER_API_KEY (or GOOGLE_API_KEY + GOOGLE_CSE_ID) env var.
@@ -39,7 +39,7 @@ import click
 from dotenv import load_dotenv
 
 from strands_env.core.models import ModelConfig, build_model_factory
-from strands_env.core.types import Action
+from strands_env.core.types import Task
 from strands_env.environments.web_search import WebSearchEnv
 
 QUESTION = "What are the key features announced in the latest Python 3.13 release?"
@@ -77,11 +77,11 @@ async def run_demo(
         click.echo(f"Question: {QUESTION}")
         click.echo("-" * 60)
 
-        result = await env.step(Action(message=QUESTION))
+        result = await env.rollout(Task(message=QUESTION))
 
-        click.echo(f"\nMessages:    {result.observation.messages}")
+        click.echo(f"\nMessages:    {result.messages}")
         click.echo(f"\nTermination: {result.termination_reason.value}")
-        click.echo(f"Metrics:     {result.observation.metrics}")
+        click.echo(f"Metrics:     {result.metrics}")
     finally:
         await env.cleanup()
 

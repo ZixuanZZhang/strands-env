@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Ray actor pool for distributing `Environment.step()` across processes."""
+"""Ray actor pool for distributing `Environment.rollout()` across processes."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from strands_env.utils.loader import load_function
 
-from .types import Action, RewardResult, StepResult
+from .types import RewardResult, RolloutResult, Task
 
 logger = logging.getLogger(__name__)
 
@@ -51,41 +51,41 @@ class EnvironmentActor:
         env_hook = load_function(env_hook_path)
         self.env_factory = env_hook(**env_hook_config)
 
-    async def step(self, action_json: str) -> str:
-        """Run one environment step and return the JSON-serialized `StepResult`.
+    async def rollout(self, task_json: str) -> str:
+        """Run one rollout and return the JSON-serialized `RolloutResult`.
 
         Args:
-            action_json: JSON string from `Action.model_dump_json()`.
+            task_json: JSON string from `Task.model_dump_json()`.
 
         Returns:
-            JSON string, reconstruct via `StepResult.model_validate_json()`.
+            JSON string, reconstruct via `RolloutResult.model_validate_json()`.
         """
-        action = Action.model_validate_json(action_json)
-        env = await self.env_factory(action)
+        task = Task.model_validate_json(task_json)
+        env = await self.env_factory(task)
         try:
             await env.reset()
-            step_result = await env.step(action)
-            return step_result.model_dump_json()
+            result = await env.rollout(task)
+            return result.model_dump_json()
         finally:
             await env.cleanup()
 
-    async def compute_reward(self, action_json: str, step_result_json: str) -> str:
+    async def compute_reward(self, task_json: str, result_json: str) -> str:
         """Recompute reward for an existing rollout without re-running the agent.
 
         Args:
-            action_json: JSON string from `Action.model_dump_json()`.
-            step_result_json: JSON string from `StepResult.model_dump_json()`.
+            task_json: JSON string from `Task.model_dump_json()`.
+            result_json: JSON string from `RolloutResult.model_dump_json()`.
 
         Returns:
             JSON string, reconstruct via `RewardResult.model_validate_json()`.
         """
-        action = Action.model_validate_json(action_json)
-        step_result = StepResult.model_validate_json(step_result_json)
-        env = await self.env_factory(action)
+        task = Task.model_validate_json(task_json)
+        result = RolloutResult.model_validate_json(result_json)
+        env = await self.env_factory(task)
         try:
             if env.reward_fn is None:
                 raise ValueError("Environment has no reward function configured")
-            reward_result = await env.reward_fn.compute(action=action, step_result=step_result)
+            reward_result = await env.reward_fn.compute(task, result)
             return reward_result.model_dump_json()
         finally:
             await env.cleanup()
@@ -135,21 +135,21 @@ class EnvironmentActorPool:
             n_actors_per_node,
         )
 
-    async def step(self, action: Action) -> StepResult:
-        """Run one environment step on the next available actor.
+    async def rollout(self, task: Task) -> RolloutResult:
+        """Run one rollout on the next available actor.
 
         Uses `asyncio.to_thread(ray.get, ...)` to avoid blocking the
         caller's event loop.
         """
         actor = next(self.cycle)
-        obj_ref = actor.step.remote(action.model_dump_json())
+        obj_ref = actor.rollout.remote(task.model_dump_json())
         result_json: str = await asyncio.to_thread(ray.get, obj_ref)
-        return StepResult.model_validate_json(result_json)
+        return RolloutResult.model_validate_json(result_json)
 
-    async def compute_reward(self, action: Action, step_result: StepResult) -> RewardResult:
+    async def compute_reward(self, task: Task, result: RolloutResult) -> RewardResult:
         """Recompute reward for an existing rollout on the next available actor."""
         actor = next(self.cycle)
-        obj_ref = actor.compute_reward.remote(action.model_dump_json(), step_result.model_dump_json())
+        obj_ref = actor.compute_reward.remote(task.model_dump_json(), result.model_dump_json())
         result_json: str = await asyncio.to_thread(ray.get, obj_ref)
         return RewardResult.model_validate_json(result_json)
 

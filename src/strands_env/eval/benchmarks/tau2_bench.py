@@ -27,7 +27,7 @@ from typing import ClassVar, Literal
 
 from typing_extensions import override
 
-from strands_env.core import Action, TaskContext
+from strands_env.core import Task, TaskContext
 from strands_env.environments.tau2_bench import Tau2BenchConfig
 from strands_env.eval import Evaluator
 from strands_env.eval.evaluator import EvalSample
@@ -52,7 +52,7 @@ def compute_pass_caret_k(
     """Consistency metric ``pass^k = C(c, k) / C(n, k)`` averaged across prompts."""
 
     def is_correct(s: EvalSample) -> bool:
-        r = s.step_result.reward
+        r = s.result.reward
         return r is not None and r.reward >= reward_threshold
 
     metrics = {}
@@ -94,18 +94,18 @@ class Tau2BenchEvaluator(Evaluator):
         )
 
     @override
-    def load_dataset(self) -> list[Action]:
-        """Enumerate tasks for `self.domain` and bundle statics into each Action."""
+    def load_dataset(self) -> list[Task]:
+        """Enumerate tasks for `self.domain` and bundle statics into each Task."""
         if not self.data_dir.exists():
             self._download_dataset()
         domain_mod = importlib.import_module(f"tau2.domains.{self.domain}.environment")
         tasks = [task.model_dump(mode="json") for task in domain_mod.get_tasks(task_split_name="base")]
         user_sim_guidelines = get_global_user_sim_guidelines(use_tools=self.user_has_tools)
         return [
-            Action(
-                message="",  # set by Tau2BenchEnv.step() from env.first_user_msg (after reset)
-                task_context=Tau2BenchTaskContext(
-                    id=str(task["id"]),
+            Task(
+                id=str(task["id"]),
+                message="",  # set by Tau2BenchEnv.rollout() from env.first_user_msg (after reset)
+                context=Tau2BenchTaskContext(
                     ground_truth=(task.get("evaluation_criteria") or {}).get("reward_basis"),
                     config=Tau2BenchConfig(
                         domain=self.domain,
@@ -120,13 +120,13 @@ class Tau2BenchEvaluator(Evaluator):
     @override
     def validate_sample(self, sample: EvalSample) -> bool:
         """Abort samples with missing reward, NL judge error, or `tau2_termination == "aborted"` (all retryable)."""
-        reward = sample.step_result.reward
+        reward = sample.result.reward
         if reward is None:
             return False
         nl_judge = reward.info.get("nl_judge")
         if nl_judge and nl_judge.get("status") == "error":
             return False
-        if (sample.step_result.observation.metrics or {}).get("tau2_termination") == "aborted":
+        if (sample.result.metrics or {}).get("tau2_termination") == "aborted":
             return False
         return True
 

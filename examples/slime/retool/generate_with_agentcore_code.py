@@ -29,7 +29,7 @@ from slime.utils.types import Sample  # type: ignore
 from strands_sglang import get_client_from_slime_args
 
 from strands_env.core.models import sglang_model_factory
-from strands_env.core.types import Action, TaskContext
+from strands_env.core.types import Task, TaskContext
 from strands_env.environments.agentcore_code import AgentCoreCodeEnv
 from strands_env.environments.agentcore_code.quotas import CodeInterpreterQuotas
 from strands_env.environments.calculator.reward import MathVerifyReward
@@ -37,7 +37,7 @@ from strands_env.utils.aws import get_client
 from strands_env.utils.slime_logger import RolloutLogger
 
 # export for slime's --custom-rollout-log-function-path
-log_rollout_metrics = RolloutLogger(backend="wandb", n_rollouts_per_step=3, log_per_tool_metrics=False).log_rollouts
+log_rollouts = RolloutLogger(backend="wandb", n_rollouts_per_step=3, log_per_tool_metrics=False).log_rollouts
 
 logger = logging.getLogger(__name__)
 
@@ -83,17 +83,17 @@ async def generate_and_rm(args, sample: Sample, sampling_params) -> Sample:
     )
 
     prompt = sample.prompt if isinstance(sample.prompt, str) else sample.prompt[0]["content"]
-    action = Action(
+    task = Task(
         message=prompt,
-        task_context=TaskContext(
+        context=TaskContext(
             ground_truth=sample.label,
             conversation_history=[],
         ),
     )
-    step_result = await env.step(action)
+    result = await env.rollout(task)
 
     # Extract token data from the rollout
-    rollout = step_result.observation.rollout
+    rollout = result.rollout
     prompt_len = rollout.initial_prompt_length
     sample.tokens = rollout.token_ids
     sample.loss_mask = rollout.loss_mask[prompt_len:]
@@ -102,21 +102,21 @@ async def generate_and_rm(args, sample: Sample, sampling_params) -> Sample:
     sample.response = state.tokenizer.decode(rollout.token_ids[prompt_len:], skip_special_tokens=False)
 
     # Set status
-    if step_result.termination_reason.value == "task_complete":
+    if result.termination_reason.value == "task_complete":
         sample.status = Sample.Status.COMPLETED
     else:
         sample.status = Sample.Status.TRUNCATED
 
-    # Attach step result (for custom rollout logging) and env metrics (for the reward below)
-    sample.step_result = step_result
-    sample.metrics = step_result.observation.metrics
+    # Attach rollout result (for custom rollout logging) and env metrics (for the reward below)
+    sample.result = result
+    sample.metrics = result.metrics
 
     await env.cleanup()
 
     # Compute retool reward
-    if step_result.reward.reward == 0.0:
+    if result.reward.reward == 0.0:
         sample.reward = min(-0.6, -1 + (sample.metrics.get("tool_iters", 0) - 2) / 2 * 0.1)
     else:
-        sample.reward = step_result.reward.reward
+        sample.reward = result.reward.reward
 
     return sample

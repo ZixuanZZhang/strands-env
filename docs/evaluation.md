@@ -109,7 +109,7 @@ def create_env_factory(model_config: dict, **env_config):
     """Create an async environment factory."""
     model_factory = build_model_factory(model_config)
 
-    async def env_factory(action):
+    async def env_factory(task):
         return YourEnvironment(model_factory=model_factory, **env_config)
 
     return env_factory
@@ -127,7 +127,7 @@ def create_env_factory(model_config: dict, **env_config):
     model_factory = build_model_factory(model_config)
     reward_fn = MathVerifyReward()
 
-    async def env_factory(_action):
+    async def env_factory(_task):
         return CalculatorEnv(model_factory=model_factory, reward_fn=reward_fn, **env_config)
 
     return env_factory
@@ -145,7 +145,7 @@ def create_env_factory(model_config: dict, **env_config):
     model_factory = build_model_factory(model_config)
     reward_fn = MathVerifyReward()
 
-    async def env_factory(_action):
+    async def env_factory(_task):
         return AgentCoreCodeEnv(model_factory=model_factory, reward_fn=reward_fn, mode="code", **env_config)
 
     return env_factory
@@ -163,17 +163,17 @@ Create a Python file that exports `EvaluatorClass`:
 # my_evaluator.py
 from collections.abc import Iterable
 
-from strands_env.core import Action, TaskContext
+from strands_env.core import Task, TaskContext
 from strands_env.eval import Evaluator
 
 class MyEvaluator(Evaluator):
     benchmark_name = "my-benchmark"
 
-    def load_dataset(self) -> Iterable[Action]:
+    def load_dataset(self) -> Iterable[Task]:
         for item in load_my_data():
-            yield Action(
+            yield Task(
                 message=item["prompt"],
-                task_context=TaskContext(
+                context=TaskContext(
                     id=item["id"],
                     ground_truth=item["answer"],
                 ),
@@ -195,7 +195,7 @@ To add a built-in benchmark, create a module in `src/strands_env/eval/benchmarks
 # src/strands_env/eval/benchmarks/my_benchmark.py
 from collections.abc import Iterable
 
-from strands_env.core import Action, TaskContext
+from strands_env.core import Task, TaskContext
 
 from ..evaluator import Evaluator
 from ..registry import register_eval
@@ -204,12 +204,12 @@ from ..registry import register_eval
 class MyEvaluator(Evaluator):
     benchmark_name = "my-benchmark"
 
-    def load_dataset(self) -> Iterable[Action]:
-        """Load dataset and return Actions for evaluation."""
+    def load_dataset(self) -> Iterable[Task]:
+        """Load dataset and return Tasks for evaluation."""
         for item in load_my_data():
-            yield Action(
+            yield Task(
                 message=item["prompt"],
-                task_context=TaskContext(
+                context=TaskContext(
                     id=item["id"],
                     ground_truth=item["answer"],
                 ),
@@ -231,8 +231,8 @@ async def run_evaluation():
         keep_rollout=False,
     )
 
-    actions = evaluator.load_dataset()
-    results = await evaluator.run(actions)
+    tasks = evaluator.load_dataset()
+    results = await evaluator.run(tasks)
     metrics = evaluator.compute_metrics(results)
     # {"pass@1": 0.75, "pass@8": 0.95, ...}
 ```
@@ -240,7 +240,7 @@ async def run_evaluation():
 For distributed eval, build an `EnvironmentActorPool` with the dotted hook path and a serializable config dict, then pass it as `env_actor_pool` instead of `env_factory`:
 
 ```python
-from strands_env.utils.ray import EnvironmentActorPool
+from strands_env.core.distributed import EnvironmentActorPool
 
 env_actor_pool = EnvironmentActorPool(
     env_hook_path="examples.eval.simple_math.calculator_env.create_env_factory",
@@ -296,7 +296,7 @@ Evaluation results are saved to the output directory:
 ```
 {benchmark}_eval/
 ├── config.json      # CLI configuration for reproducibility
-├── results.jsonl    # Per-sample results (action, step_result, reward)
+├── results.jsonl    # Per-sample results (task, result, reward)
 └── metrics.json     # Aggregated metrics (pass@k, etc.)
 ```
 

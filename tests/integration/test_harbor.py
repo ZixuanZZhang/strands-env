@@ -27,10 +27,10 @@ import pytest
 
 pytest.importorskip("harbor", reason="harbor>=0.1.43 required for harbor env integration tests")
 
-from strands_env.core.types import Action, TaskContext, TerminationReason
+from strands_env.core.types import Task, TaskContext, TerminationReason
 from strands_env.environments.harbor import HarborEnv
 
-from .conftest import assert_rollout, assert_successful_step, assert_token_usage
+from .conftest import assert_rollout, assert_successful_rollout, assert_token_usage
 
 FORCE_TOOL_PROMPT = (
     "You are a terminal assistant. Always use execute_command. "
@@ -96,14 +96,14 @@ async def harbor_env(model_factory, task_dir, tmp_path):
 
 
 class TestHarborEnv:
-    async def test_step_with_docker_reward(self, harbor_env):
-        """Full pipeline: agent runs command in Docker, observation is complete, reward comes from test.sh."""
-        result = await harbor_env.step(Action(message="Run 'echo hello world' in the terminal."))
+    async def test_rollout_with_docker_reward(self, harbor_env):
+        """Full pipeline: agent runs command in Docker, result is complete, reward comes from test.sh."""
+        result = await harbor_env.rollout(Task(message="Run 'echo hello world' in the terminal."))
 
-        assert_successful_step(result)
+        assert_successful_rollout(result)
         assert_rollout(result)
         assert_token_usage(result)
-        assert result.observation.metrics["per_tool_metrics"]["execute_command"]["calls"] >= 1
+        assert result.metrics["per_tool_metrics"]["execute_command"]["calls"] >= 1
 
         # Reward: test.sh always writes 1 to reward.txt, validating the full pipeline
         # (upload tests → run test.sh → download results → parse reward)
@@ -112,13 +112,13 @@ class TestHarborEnv:
 
     async def test_multi_turn_conversation(self, harbor_env):
         """Agent uses conversation history from a prior turn to maintain context."""
-        result1 = await harbor_env.step(Action(message="Run 'echo hello' in the terminal."))
+        result1 = await harbor_env.rollout(Task(message="Run 'echo hello' in the terminal."))
         assert result1.termination_reason == TerminationReason.TASK_COMPLETE
 
-        result2 = await harbor_env.step(
-            Action(
+        result2 = await harbor_env.rollout(
+            Task(
                 message="Now run 'echo world'.",
-                task_context=TaskContext(conversation_history=result1.observation.messages),
+                context=TaskContext(conversation_history=result1.messages),
             ),
         )
         assert result2.termination_reason == TerminationReason.TASK_COMPLETE
@@ -135,10 +135,10 @@ class TestHarborEnv:
         )
         try:
             await env.reset()
-            result = await env.step(Action(message=MANY_STEPS_PROMPT))
+            result = await env.rollout(Task(message=MANY_STEPS_PROMPT))
 
             assert result.termination_reason == TerminationReason.MAX_TOOL_ITERATIONS_REACHED
-            assert result.observation.metrics["tool_iters"] <= 1
+            assert result.metrics["tool_iters"] <= 1
         finally:
             await env.cleanup()
 
@@ -154,9 +154,9 @@ class TestHarborEnv:
         )
         try:
             await env.reset()
-            result = await env.step(Action(message=MANY_STEPS_PROMPT))
+            result = await env.rollout(Task(message=MANY_STEPS_PROMPT))
 
             assert result.termination_reason == TerminationReason.MAX_TOOL_CALLS_REACHED
-            assert result.observation.metrics["tool_calls"] >= 1
+            assert result.metrics["tool_calls"] >= 1
         finally:
             await env.cleanup()
