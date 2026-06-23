@@ -64,6 +64,9 @@ class HarborConfig(EnvironmentConfig):
     backend: NotRequired[Literal["docker", "e2b"]]
     task_env_config: NotRequired[TaskEnvironmentConfig]
     prebaked_e2b_config: NotRequired[PrebakedE2BConfig]
+    # Chars of tool output kept from the head/tail before eliding the middle (0 head+tail disables truncation).
+    tool_output_head_chars: NotRequired[int]
+    tool_output_tail_chars: NotRequired[int]
 
 
 class PrebakedE2BConfig(TypedDict, total=False):
@@ -101,6 +104,8 @@ class HarborEnv(Environment):
         self.backend: Literal["docker", "e2b"] = self.config.get("backend", "docker")
         self.task_env_config: TaskEnvironmentConfig = self.config.get("task_env_config", TaskEnvironmentConfig())
         self.prebaked_e2b_config: PrebakedE2BConfig = self.config.get("prebaked_e2b_config", {})
+        self.tool_output_head_chars: int = int(self.config.get("tool_output_head_chars", 2000))
+        self.tool_output_tail_chars: int = int(self.config.get("tool_output_tail_chars", 6000))
         self.sandbox: HarborEnvironment | None = None
         # Harbor's reward is tied to the sandbox, so we don't need to pass it in.
         self.reward_fn = HarborReward(self)
@@ -159,7 +164,20 @@ class HarborEnv(Environment):
             output += f"\n[stderr]: {result.stderr}"
         if result.return_code != 0:
             output += f"\n[exit code]: {result.return_code}"
-        return output.strip() or "(no output)"
+        return self._truncate_output(output.strip()) or "(no output)"
+
+    def _truncate_output(self, output: str) -> str:
+        """Truncate long tool output, keeping the head and tail and eliding the middle.
+
+        The tail gets a larger budget than the head, since the end of a command's
+        output (final results, exit code) is usually more informative than the start.
+        """
+        head, tail = self.tool_output_head_chars, self.tool_output_tail_chars
+        if head + tail <= 0 or len(output) <= head + tail:
+            return output
+        omitted = len(output) - head - tail
+        marker = f"\n... [truncated {omitted} characters] ...\n"
+        return output[:head] + marker + output[-tail:]
 
     @override
     def get_tools(self) -> list:
