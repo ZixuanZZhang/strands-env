@@ -61,6 +61,8 @@ class HarborConfig(EnvironmentConfig):
     task_dir: str
     trial_dir: str
     timeout: NotRequired[int]
+    # Timeout for the verification test run; defaults to `timeout` if unset.
+    verify_timeout: NotRequired[int]
     backend: NotRequired[Literal["docker", "e2b"]]
     task_env_config: NotRequired[TaskEnvironmentConfig]
     prebaked_e2b_config: NotRequired[PrebakedE2BConfig]
@@ -101,11 +103,12 @@ class HarborEnv(Environment):
         self.task_paths = TaskPaths(Path(str(self.config["task_dir"])))
         self.trial_paths = TrialPaths(Path(str(self.config["trial_dir"])))
         self.timeout: int = int(self.config.get("timeout", 1200))
+        self.verify_timeout: int = int(self.config.get("verify_timeout", self.timeout))
         self.backend: Literal["docker", "e2b"] = self.config.get("backend", "docker")
         self.task_env_config: TaskEnvironmentConfig = self.config.get("task_env_config", TaskEnvironmentConfig())
         self.prebaked_e2b_config: PrebakedE2BConfig = self.config.get("prebaked_e2b_config", {})
-        self.tool_output_head_chars: int = int(self.config.get("tool_output_head_chars", 2000))
-        self.tool_output_tail_chars: int = int(self.config.get("tool_output_tail_chars", 6000))
+        self.tool_output_head_chars: int = int(self.config.get("tool_output_head_chars", 1000))
+        self.tool_output_tail_chars: int = int(self.config.get("tool_output_tail_chars", 3000))
         self.sandbox: HarborEnvironment | None = None
         # Harbor's reward is tied to the sandbox, so we don't need to pass it in.
         self.reward_fn = HarborReward(self)
@@ -167,17 +170,12 @@ class HarborEnv(Environment):
         return self._truncate_output(output.strip()) or "(no output)"
 
     def _truncate_output(self, output: str) -> str:
-        """Truncate long tool output, keeping the head and tail and eliding the middle.
-
-        The tail gets a larger budget than the head, since the end of a command's
-        output (final results, exit code) is usually more informative than the start.
-        """
+        """Cap tool output so it can't blow the model's context window."""
         head, tail = self.tool_output_head_chars, self.tool_output_tail_chars
         if head + tail <= 0 or len(output) <= head + tail:
             return output
         omitted = len(output) - head - tail
-        marker = f"\n... [truncated {omitted} characters] ...\n"
-        return output[:head] + marker + output[-tail:]
+        return output[:head] + f"\n... [truncated {omitted} characters] ...\n" + output[-tail:]
 
     @override
     def get_tools(self) -> list:
