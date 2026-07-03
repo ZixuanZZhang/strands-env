@@ -16,18 +16,17 @@
 
 The agent under test comes from the CLI model flags. The user-simulator and the
 NL-assertion judge default to `DEFAULT_USER_JUDGE_MODEL_CONFIG`; override them (or
-disable the judge with `null`) and set `max_turns` via ``--env-config``:
+disable the judge with `null`) and set `max_steps` via ``--env-config``:
 
     {
         "user_model_config":  { ...ModelConfig... },   # optional: user-simulator
         "judge_model_config": { ...ModelConfig... },   # optional: NL-assertion judge (null to disable)
-        "max_turns": 100                               # optional, default 100
+        "max_steps": 100                               # optional, default 100 (tau2 step semantics)
     }
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
 
 from strands_env.core.models import build_model_factory
@@ -44,20 +43,14 @@ def create_env_factory(model_config: dict, **env_config: Any):
     user_model_factory = build_model_factory(env_config.pop("user_model_config", DEFAULT_USER_JUDGE_MODEL_CONFIG))
     judge_config = env_config.pop("judge_model_config", DEFAULT_USER_JUDGE_MODEL_CONFIG)
     judge_model_factory = build_model_factory(judge_config) if judge_config else None
-    initial_db_cache: dict[str, Any] = {}  # pristine base DB per domain, loaded once
 
     async def env_factory(task: Task) -> Tau2BenchEnv:
         """Construct a fresh `Tau2BenchEnv` for one task."""
         config = dict(task.context.config)  # type: ignore[attr-defined]
-        domain = config["domain"]
-        if domain not in initial_db_cache:
-            domain_mod = importlib.import_module(f"tau2.domains.{domain}.environment")
-            initial_db_cache[domain] = domain_mod.get_environment(db=None).tools.db
         return Tau2BenchEnv(
             agent_model_factory=agent_model_factory,
             user_model_factory=user_model_factory,
             judge_model_factory=judge_model_factory,
-            initial_db=initial_db_cache[domain],
             **config,
             **env_config,
         )

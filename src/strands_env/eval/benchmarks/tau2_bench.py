@@ -16,9 +16,7 @@
 
 from __future__ import annotations
 
-import importlib
 import logging
-import math
 import os
 import subprocess
 from functools import partial
@@ -28,10 +26,10 @@ from typing import ClassVar, Literal
 from typing_extensions import override
 
 from strands_env.core import Task, TaskContext
-from strands_env.environments.tau2_bench import Tau2BenchConfig
+from strands_env.environments.tau2_bench import Tau2BenchConfig, _tau2
 from strands_env.eval import Evaluator
 from strands_env.eval.evaluator import EvalSample
-from strands_env.eval.metrics import MetricFunction, compute_pass_at_k
+from strands_env.eval.metrics import MetricFunction, compute_pass_at_k, compute_pass_power_k
 
 from ..registry import register_eval
 
@@ -39,33 +37,7 @@ from ..registry import register_eval
 DATA_DIR = Path("./data/tau2-bench")
 os.environ.setdefault("TAU2_DATA_DIR", str((DATA_DIR / "data").resolve()))
 
-from tau2.user.user_simulator import get_global_user_sim_guidelines  # type: ignore[import-not-found]  # noqa: E402
-
 logger = logging.getLogger(__name__)
-
-
-def compute_pass_caret_k(
-    results: dict[str, list[EvalSample]],
-    k_values: list[int],
-    reward_threshold: float = 1.0,
-) -> dict[str, float]:
-    """Consistency metric ``pass^k = C(c, k) / C(n, k)`` averaged across prompts."""
-
-    def is_correct(s: EvalSample) -> bool:
-        r = s.result.reward_result
-        return r is not None and r.reward >= reward_threshold
-
-    metrics = {}
-    for k in k_values:
-        scores = []
-        for samples in results.values():
-            n = len(samples)
-            c = sum(1 for s in samples if is_correct(s))
-            if k > n:  # keep: math.comb(n, k) would be 0 here and divide by zero
-                continue
-            scores.append(math.comb(c, k) / math.comb(n, k))
-        metrics[f"pass^{k}"] = sum(scores) / len(scores) if scores else 0.0
-    return metrics
 
 
 class Tau2BenchTaskContext(TaskContext):
@@ -75,7 +47,7 @@ class Tau2BenchTaskContext(TaskContext):
 
 
 class Tau2BenchEvaluator(Evaluator):
-    """Base evaluator for tau2-bench; subclasses set `domain` and `user_has_tools`."""
+    """Base evaluator for tau2-bench; subclasses set `domain`."""
 
     git_url: str = "https://github.com/sierra-research/tau2-bench.git"
     # Tag to clone the data files from.
@@ -83,7 +55,6 @@ class Tau2BenchEvaluator(Evaluator):
     data_dir: Path = DATA_DIR
 
     domain: ClassVar[Literal["airline", "retail", "telecom"]]
-    user_has_tools: ClassVar[bool] = False
 
     def _download_dataset(self) -> None:
         """Clone tau2-bench data files at `git_ref` (not bundled with the `tau2` pip wheel)."""
@@ -98,9 +69,7 @@ class Tau2BenchEvaluator(Evaluator):
         """Enumerate tasks for `self.domain` and bundle statics into each Task."""
         if not self.data_dir.exists():
             self._download_dataset()
-        domain_mod = importlib.import_module(f"tau2.domains.{self.domain}.environment")
-        tasks = [task.model_dump(mode="json") for task in domain_mod.get_tasks(task_split_name="base")]
-        user_sim_guidelines = get_global_user_sim_guidelines(use_tools=self.user_has_tools)
+        tasks = [task.model_dump(mode="json") for task in _tau2.get_tasks(self.domain)]
         return [
             Task(
                 id=str(task["id"]),
@@ -109,8 +78,7 @@ class Tau2BenchEvaluator(Evaluator):
                     ground_truth=(task.get("evaluation_criteria") or {}).get("reward_basis"),
                     config=Tau2BenchConfig(
                         domain=self.domain,
-                        task=task,
-                        user_sim_guidelines=user_sim_guidelines,
+                        tau2_task=task,
                     ),
                 ),
             )
@@ -119,14 +87,14 @@ class Tau2BenchEvaluator(Evaluator):
 
     @override
     def validate_sample(self, sample: EvalSample) -> bool:
-        """Abort samples with missing reward, NL judge error, or `tau2_termination == "aborted"` (all retryable)."""
+        """Abort samples with missing reward, NL judge error, or an aborted user-sim (all retryable)."""
         reward = sample.result.reward_result
         if reward is None:
             return False
         nl_judge = reward.info.get("nl_judge")
         if nl_judge and nl_judge.get("status") == "error":
             return False
-        if (sample.result.metrics or {}).get("tau2_termination") == "aborted":
+        if ((sample.result.metrics or {}).get("user_simulator") or {}).get("termination") == "aborted":
             return False
         return True
 
@@ -136,7 +104,7 @@ class Tau2BenchEvaluator(Evaluator):
         k_values = list(range(1, self.n_samples_per_prompt + 1))
         return [
             partial(compute_pass_at_k, k_values=k_values, reward_threshold=1.0),
-            partial(compute_pass_caret_k, k_values=k_values, reward_threshold=1.0),
+            partial(compute_pass_power_k, k_values=k_values, reward_threshold=1.0),
         ]
 
 
@@ -162,4 +130,3 @@ class Tau2BenchTelecomEvaluator(Tau2BenchEvaluator):
 
     benchmark_name = "tau2-bench-telecom"
     domain: ClassVar[Literal["airline", "retail", "telecom"]] = "telecom"
-    user_has_tools: ClassVar[bool] = True
