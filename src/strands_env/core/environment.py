@@ -91,20 +91,37 @@ class Environment:
         self.trace_attributes: dict[str, AttributeValue] | None = self.config.get("trace_attributes")
         self.agent_name: str | None = self.config.get("agent_name")
 
-    async def reset(self) -> None:
-        """Reset for a new episode. Override for environment-specific init.
+    async def reset(self, _task: Task) -> None:
+        """Build the episode for `task`. Override for environment-specific init.
+
+        Called by `rollout()` before the agent runs — gym-style, the task enters here.
 
         Notes:
             - This is the right place for resource-heavy or async initialization
             (e.g., spinning up containers, creating sessions, connecting to services).
-            - Keep `__init__` limited to storing config and lightweight state —
-            it is synchronous and cannot `await`.
-            - Paired with `cleanup` which tears down what `reset` sets up.
+            - Keep `__init__` limited to storing operator-authored config and lightweight
+            state — it is synchronous and cannot `await`.
+            - Paired with `cleanup`, which tears down what `reset` sets up and must
+            tolerate partially-initialized state (`reset` may fail midway).
         """
         pass
 
     async def rollout(self, task: Task) -> RolloutResult:
-        """Run one agent rollout and return its trajectory, reward, and termination reason."""
+        """Run one episode: `reset(task)`, then the agent loop, then `cleanup()` (always).
+
+        Template method — override `_rollout()` for environment-specific episode logic;
+        `rollout()` itself centralizes the setup/teardown guarantee for every harness.
+        """
+        try:
+            await self.reset(task)
+            result = await self._rollout(task)
+            await self._compute_reward(task, result)
+            return result
+        finally:
+            await self.cleanup()
+
+    async def _rollout(self, task: Task) -> RolloutResult:
+        """Run the agent loop for one episode and return its trajectory, reward, and termination reason."""
         # 1. Build inputs and the agent.
         conversation_history = task.conversation_history
         limiter = LoopLimiter(
@@ -137,21 +154,18 @@ class Environment:
         # 3. Build the result.
         new_messages = list(agent.messages)[len(conversation_history) :]
         rollout = getattr(agent.model, "rollout", None)
-        tool_parse_errors = getattr(agent.model, "tool_parse_errors", None)
-        metrics = self.compute_metrics(
-            event_loop_metrics=agent.event_loop_metrics, loop_limiter=limiter, tool_parse_errors=tool_parse_errors
-        )
-        result = RolloutResult(
+        metrics = self.compute_metrics(agent, limiter)
+        return RolloutResult(
             messages=new_messages, rollout=rollout, metrics=metrics, termination_reason=termination_reason
         )
 
-        # 4. Compute and time the reward (if any).
-        if self.reward_fn:
-            reward_t0 = time.perf_counter()
-            result.reward_result = await self.reward_fn.compute(task, result)
-            result.metrics["reward_latency_s"] = round(time.perf_counter() - reward_t0, 4)
-
-        return result
+    async def _compute_reward(self, task: Task, result: RolloutResult) -> None:
+        """Compute and time the reward (if any), recording `reward_latency_s` in the metrics."""
+        if self.reward_fn is None:
+            return
+        reward_t0 = time.perf_counter()
+        result.reward_result = await self.reward_fn.compute(task, result)
+        result.metrics["reward_latency_s"] = round(time.perf_counter() - reward_t0, 4)
 
     async def cleanup(self) -> None:
         """Release resources. Override in subclasses."""
@@ -169,13 +183,16 @@ class Environment:
         """Conversation manager for context window handling. Override in subclasses."""
         return NullConversationManager()
 
-    def compute_metrics(
-        self,
-        event_loop_metrics: EventLoopMetrics,
-        loop_limiter: LoopLimiter,
-        tool_parse_errors: dict[str, int] | None = None,
-    ) -> dict[str, Any]:
-        """Extract metrics from the event loop. Override to add custom metrics."""
+    def compute_metrics(self, agent: Agent | None, loop_limiter: LoopLimiter) -> dict[str, Any]:
+        """Extract metrics from an agent's event loop. Override to add custom metrics.
+
+        `agent=None` means no agent ran (e.g. the episode ended before the first turn);
+        the metrics dict keeps its usual shape with zeroed values.
+        """
+        event_loop_metrics = agent.event_loop_metrics if agent is not None else EventLoopMetrics()
+        tool_parse_errors: dict[str, int] | None = (
+            getattr(agent.model, "tool_parse_errors", None) if agent is not None else None
+        )
 
         def _summarize(counts: Sequence[Any], round_digits: int = 1) -> dict[str, int | float]:
             return {

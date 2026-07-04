@@ -22,10 +22,8 @@ by `Tau2BenchUserSimulator` via `AfterInvocationEvent.resume` (strands-agents >=
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING, Any, Literal
 
-from strands.telemetry.metrics import EventLoopMetrics
 from strands.types.content import Message
 from strands_sglang import LoopLimiter
 from typing_extensions import NotRequired, Unpack, override
@@ -98,7 +96,7 @@ class Tau2BenchEnv(Environment):
         self.reward_fn: Tau2BenchReward = Tau2BenchReward(env=self, judge_model=judge_model)
 
     @override
-    async def reset(self) -> None:
+    async def reset(self, task: Task) -> None:
         """Build the tau2 environment based on the task config."""
         self.tau2_task = _tau2.Tau2Task.model_validate(self.config["tau2_task"])
         self.tau2_env = _tau2.build_task_environment(self.domain, self.tau2_task)
@@ -125,7 +123,7 @@ class Tau2BenchEnv(Environment):
         )
 
     @override
-    async def rollout(self, task: Task) -> RolloutResult:
+    async def _rollout(self, task: Task) -> RolloutResult:
         """Seed the greeting exchange into the task, then run the episode."""
         # task prompt is simulated by the user simulator
         task.message = await self.user_simulator.first_message()
@@ -138,26 +136,19 @@ class Tau2BenchEnv(Environment):
             result = RolloutResult(
                 messages=[{"role": "user", "content": [{"text": task.message}]}],
                 # A fresh limiter reports the truth: the agent loop processed nothing
-                metrics=self.compute_metrics(event_loop_metrics=EventLoopMetrics(), loop_limiter=LoopLimiter()),
+                # `agent=None`: the user stopped at the greeting, no assistant agent ever ran
+                metrics=self.compute_metrics(None, LoopLimiter()),
                 termination_reason=TerminationReason.TASK_COMPLETE,
             )
-            reward_t0 = time.perf_counter()
-            result.reward_result = await self.reward_fn.compute(task, result)
-            result.metrics["reward_latency_s"] = round(time.perf_counter() - reward_t0, 4)
             logger.warning("user ended the dialogue at greeting (%s...)", task.message[:80])
-        # otherwise, run the rollout normally (computes the reward itself)
         else:
-            result = await super().rollout(task)
+            result = await super()._rollout(task)
 
         # both paths report the user-simulator's side of the episode
         result.metrics["user_simulator"] = {
             "termination": self.user_simulator.termination,
             "messages": list(self.user_simulator.agent.messages),
-            **self.compute_metrics(
-                event_loop_metrics=self.user_simulator.agent.event_loop_metrics,
-                loop_limiter=self.user_simulator.limiter,
-                tool_parse_errors=getattr(self.user_simulator.agent.model, "tool_parse_errors", None),
-            ),
+            **self.compute_metrics(self.user_simulator.agent, self.user_simulator.limiter),
         }
         return result
 

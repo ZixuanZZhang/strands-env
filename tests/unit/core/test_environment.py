@@ -175,11 +175,62 @@ class TestRollout:
 
 
 # ---------------------------------------------------------------------------
+# rollout() template method
+# ---------------------------------------------------------------------------
+
+
+class TestRolloutTemplate:
+    async def test_reset_receives_task_and_cleanup_always_runs(self, env):
+        """rollout() = reset(task) -> _rollout(task) -> cleanup(), cleanup even on error."""
+        calls = []
+        task = Task(message="q")
+
+        async def reset(t):
+            calls.append(("reset", t))
+
+        async def _rollout(t):
+            calls.append(("_rollout", t))
+            raise RuntimeError("episode failed")
+
+        async def cleanup():
+            calls.append(("cleanup", None))
+
+        env.reset, env._rollout, env.cleanup = reset, _rollout, cleanup
+        with pytest.raises(RuntimeError):
+            await env.rollout(task)
+
+        assert calls == [("reset", task), ("_rollout", task), ("cleanup", None)]
+
+    async def test_cleanup_runs_when_reset_fails(self, env):
+        """A midway reset failure still triggers cleanup (which must tolerate partial init)."""
+        cleaned = []
+
+        async def reset(t):
+            raise RuntimeError("reset failed")
+
+        async def cleanup():
+            cleaned.append(True)
+
+        env.reset, env.cleanup = reset, cleanup
+        with pytest.raises(RuntimeError):
+            await env.rollout(Task(message="q"))
+        assert cleaned == [True]
+
+
+# ---------------------------------------------------------------------------
 # compute_metrics()
 # ---------------------------------------------------------------------------
 
 
 class TestComputeMetrics:
+    @staticmethod
+    def _agent(metrics, tool_parse_errors=None):
+        """Agent-shaped mock: compute_metrics reads .event_loop_metrics and .model.tool_parse_errors."""
+        agent = MagicMock()
+        agent.event_loop_metrics = metrics
+        agent.model.tool_parse_errors = tool_parse_errors
+        return agent
+
     @staticmethod
     def _make_cycle(input_tokens, output_tokens, cache_read_input_tokens=0):
         cycle = MagicMock()
@@ -197,7 +248,7 @@ class TestComputeMetrics:
         metrics.agent_invocations[0].cycles = cycles
         metrics.cycle_durations = [0.8, 0.9, 0.8]
 
-        result = env.compute_metrics(metrics, LoopLimiter())
+        result = env.compute_metrics(self._agent(metrics), LoopLimiter())
 
         assert result["model_calls"] == 3
         assert result["input_tokens"]["total"] == 100
@@ -217,7 +268,7 @@ class TestComputeMetrics:
         metrics.cycle_durations = [0.5]
         metrics.tool_metrics = {"calculator": tool_metric}
 
-        result = env.compute_metrics(metrics, LoopLimiter(), tool_parse_errors={"calculator": 2})
+        result = env.compute_metrics(self._agent(metrics, tool_parse_errors={"calculator": 2}), LoopLimiter())
 
         assert result["per_tool_metrics"]["calculator"]["calls"] == 5
         assert result["per_tool_metrics"]["calculator"]["successes"] == 4
@@ -233,7 +284,7 @@ class TestComputeMetrics:
         metrics.agent_invocations[0].cycles = cycles
         metrics.cycle_durations = [0.5]
 
-        result = env.compute_metrics(metrics, LoopLimiter())
+        result = env.compute_metrics(self._agent(metrics), LoopLimiter())
 
         assert result["cache_hit_rate"] == pytest.approx(0.4)
         assert result["cache_read_input_tokens"]["total"] == 40
@@ -246,7 +297,7 @@ class TestComputeMetrics:
         metrics.agent_invocations[0].cycles = cycles
         metrics.cycle_durations = [0.5]
 
-        result = env.compute_metrics(metrics, LoopLimiter())
+        result = env.compute_metrics(self._agent(metrics), LoopLimiter())
 
         # any(cache_read_counts) is False when all are 0 → no summary
         assert result["cache_read_input_tokens"] is None
@@ -258,7 +309,7 @@ class TestComputeMetrics:
         metrics.agent_invocations = []
         metrics.cycle_durations = []
 
-        result = env.compute_metrics(metrics, LoopLimiter())
+        result = env.compute_metrics(self._agent(metrics), LoopLimiter())
 
         assert result["cache_hit_rate"] is None
 
