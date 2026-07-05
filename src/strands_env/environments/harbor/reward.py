@@ -16,10 +16,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from harbor.models.task.task import Task as HarborTaskSpec
 from harbor.models.trial.paths import EnvironmentPaths
+from harbor.verifier.verifier import Verifier
 
 from strands_env.core.types import RewardFunction, RewardResult, RolloutResult
 
@@ -31,46 +35,26 @@ logger = logging.getLogger(__name__)
 
 
 class HarborReward(RewardFunction["HarborTask"]):
-    """Execute test scripts in Docker and compute binary reward (0 or 1)."""
+    """Run harbor's Verifier in the sandbox and return its reward."""
 
     def __init__(self, env: HarborEnv) -> None:
         """Initialize a `HarborReward` instance."""
         self._env = env
 
     async def compute(self, task: HarborTask, result: RolloutResult) -> RewardResult:
-        """Run verification tests in Docker and return a binary reward."""
+        """Run harbor's Verifier in the sandbox and return its reward."""
         try:
-            reward = await self._run_verification(task)
-            return RewardResult(reward=reward, info={"status": "success"})
+            assert self._env.sandbox is not None, "sandbox not initialized"
+            timeout = task.verifier_timeout if task.verifier_timeout is not None else self._env.exec_timeout
+            await self._env.sandbox.exec(f"mkdir -p {EnvironmentPaths.verifier_dir}")
+            verifier = Verifier(
+                task=HarborTaskSpec(Path(task.task_dir)),
+                trial_paths=task.trial_paths,
+                environment=self._env.sandbox,
+            )
+            verifier_result = await asyncio.wait_for(verifier.verify(), timeout=timeout)
+            # reward.json is unvalidated upstream; loud indexing raises on a missing key, never a silent 0
+            return RewardResult(reward=float(verifier_result.rewards["reward"]), info={"status": "success"})
         except Exception as e:
             logger.exception("Verification failed due to %s: %s", type(e).__name__, str(e))
             return RewardResult(reward=0.0, info={"status": "error", "message": str(e)})
-
-    async def _run_verification(self, task: HarborTask) -> float:
-        """Upload tests, execute `test.sh`, download results, and parse reward."""
-        assert self._env.sandbox is not None, "Sandbox not initialized"
-        sandbox = self._env.sandbox
-        task_paths = task.task_paths
-        trial_paths = task.trial_paths
-        timeout = task.verifier_timeout if task.verifier_timeout is not None else self._env.exec_timeout
-
-        # Upload and run tests.
-        await sandbox.upload_dir(source_dir=task_paths.tests_dir, target_dir="/tests")
-        test_cmd = (
-            'export PATH="$HOME/.local/bin:$PATH" && '
-            f"bash /tests/test.sh 2>&1 | tee {EnvironmentPaths.verifier_dir}/test-stdout.txt"
-        )
-        await sandbox.exec(test_cmd, timeout_sec=timeout)
-
-        # Download results if not using mounted volumes
-        if not sandbox.capabilities.mounted:
-            await sandbox.download_dir(
-                source_dir=str(EnvironmentPaths.verifier_dir),
-                target_dir=trial_paths.verifier_dir,
-            )
-
-        # Parse reward (1.0 if reward.txt contains value >= 1, else 0.0)
-        reward_path = trial_paths.reward_text_path
-        if reward_path.exists() and reward_path.stat().st_size > 0:
-            return 1.0 if float(reward_path.read_text().strip()) >= 1.0 else 0.0
-        raise RuntimeError(f"verification produced no reward file at {reward_path}")
