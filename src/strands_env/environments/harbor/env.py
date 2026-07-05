@@ -29,16 +29,14 @@ from typing import TYPE_CHECKING, Literal, NotRequired, Unpack, override
 
 from harbor.environments.factory import EnvironmentFactory
 from harbor.models.environment_type import EnvironmentType
-from harbor.models.task.config import EnvironmentConfig as TaskEnvironmentConfig
-from harbor.models.task.paths import TaskPaths
-from harbor.models.trial.paths import TrialPaths
 from strands import tool
-from typing_extensions import TypedDict
 
-from strands_env.core import Environment, ModelFactory, Task
+from strands_env.core import Environment, ModelFactory
 from strands_env.core.environment import EnvironmentConfig
 
+from .e2b import PrebakedE2BConfig, PrebakedE2BEnvironment
 from .reward import HarborReward
+from .task import HarborTask
 
 if TYPE_CHECKING:
     from harbor.environments.base import BaseEnvironment
@@ -47,7 +45,7 @@ if TYPE_CHECKING:
 
 
 class HarborConfig(EnvironmentConfig):
-    """Serializable configuration for `HarborEnv`.
+    """Operator-authored configuration for `HarborEnv` (the sample itself arrives as `HarborTask`).
 
     Backends:
         - "docker": Local Docker via `harbor`'s native `DockerEnvironment`.
@@ -57,31 +55,12 @@ class HarborConfig(EnvironmentConfig):
             `E2B_DOMAIN` / `E2B_API_KEY` env vars.
     """
 
-    task_id: str
-    task_dir: str
-    trial_dir: str
-    timeout: NotRequired[int]
+    exec_timeout: NotRequired[int]  # sandbox.exec timeout; also the verifier fallback
     backend: NotRequired[Literal["docker", "e2b"]]
-    task_env_config: NotRequired[TaskEnvironmentConfig]
     prebaked_e2b_config: NotRequired[PrebakedE2BConfig]
 
 
-class PrebakedE2BConfig(TypedDict, total=False):
-    """Connection + template config for the e2b backend (all fields optional)."""
-
-    # e2b cluster API domain (env: E2B_DOMAIN).
-    domain: str
-    # e2b API key (env: E2B_API_KEY); prefer `api_key_file` to keep it out of config.
-    api_key: str
-    # Read the e2b API key from this file instead of inlining it.
-    api_key_file: str
-    # Template to boot; falls back to a `templates_json` lookup by task name.
-    template_id: str
-    # {task_name: template_id} JSON map (env: E2B_TEMPLATES_PATH).
-    templates_json: str
-
-
-class HarborEnv(Environment):
+class HarborEnv(Environment[HarborTask]):
     """Harbor task environment using Harbor for container management and test execution."""
 
     default_system_prompt_path = Path(__file__).parent / "system_prompt.md"
@@ -94,47 +73,43 @@ class HarborEnv(Environment):
     ):
         """Initialize a `HarborEnv` instance."""
         super().__init__(model_factory=model_factory, **config)  # type: ignore[misc]
-        self.task_id: str = str(self.config["task_id"])
-        self.task_paths = TaskPaths(Path(str(self.config["task_dir"])))
-        self.trial_paths = TrialPaths(Path(str(self.config["trial_dir"])))
-        self.timeout: int = int(self.config.get("timeout", 1200))
+        self.exec_timeout: int = int(self.config.get("exec_timeout", 1200))
         self.backend: Literal["docker", "e2b"] = self.config.get("backend", "docker")
-        self.task_env_config: TaskEnvironmentConfig = self.config.get("task_env_config", TaskEnvironmentConfig())
         self.prebaked_e2b_config: PrebakedE2BConfig = self.config.get("prebaked_e2b_config", {})
         self.sandbox: HarborEnvironment | None = None
         # Harbor's reward is tied to the sandbox, so we don't need to pass it in.
         self.reward_fn = HarborReward(self)
 
     @override
-    async def reset(self, task: Task) -> None:
-        """Build and start the sandbox."""
-        self.trial_paths.mkdir()
-        session_id = f"{self.task_id}-{uuid.uuid4().hex[:8]}"
+    async def reset(self, task: HarborTask) -> None:
+        """Build and start the sandbox for the task's bundle."""
+        if task.system_prompt is not None:
+            self.system_prompt = task.system_prompt
+        task.trial_paths.mkdir()
+        session_id = f"{task.task_id}-{uuid.uuid4().hex[:8]}"
 
         force_build = True
         match self.backend:
             case "docker":
                 self.sandbox = EnvironmentFactory.create_environment(
                     type=EnvironmentType.DOCKER,
-                    environment_dir=self.task_paths.environment_dir,
+                    environment_dir=task.task_paths.environment_dir,
                     environment_name=session_id,
                     session_id=session_id,
-                    trial_paths=self.trial_paths,
-                    task_env_config=self.task_env_config,
+                    trial_paths=task.trial_paths,
+                    task_env_config=task.task_env_config,
                 )
             case "e2b":
-                from .e2b import PrebakedE2BEnvironment
-
                 # we use prebaked e2b for self-hosting on e.g., AWS
                 self.sandbox = PrebakedE2BEnvironment(
-                    task_id=self.task_id,
+                    template_key=task.task_id,
                     prebaked_e2b_config=self.prebaked_e2b_config,
                     # below are the same as harbor's E2BEnvironment
-                    environment_dir=self.task_paths.environment_dir,
+                    environment_dir=task.task_paths.environment_dir,
                     environment_name=session_id,
                     session_id=session_id,
-                    trial_paths=self.trial_paths,
-                    task_env_config=self.task_env_config,
+                    trial_paths=task.trial_paths,
+                    task_env_config=task.task_env_config,
                 )
                 # Prebaked templates are static; force_build is a no-op here.
                 force_build = False
@@ -153,7 +128,7 @@ class HarborEnv(Environment):
         """
         if not self.sandbox:
             raise RuntimeError("Sandbox not initialized")
-        result = await self.sandbox.exec(command, timeout_sec=self.timeout)
+        result = await self.sandbox.exec(command, timeout_sec=self.exec_timeout)
         output = result.stdout or ""
         if result.stderr:
             output += f"\n[stderr]: {result.stderr}"

@@ -51,7 +51,7 @@ def _bare_env(*, task_id: str = "fix-git", config: dict | None = None) -> Prebak
     touching the e2b SDK or harbor's base `__init__`.
     """
     env = PrebakedE2BEnvironment.__new__(PrebakedE2BEnvironment)
-    env.task_id = task_id
+    env.template_key = task_id
     env._config = config or {}
     return env
 
@@ -138,12 +138,12 @@ class TestResolveTemplateId:
     def test_missing_env_var_and_path_raises_runtimeerror(self, monkeypatch):
         """No `templates_json` + unset env var raises an actionable RuntimeError."""
         monkeypatch.delenv("E2B_TEMPLATES_PATH", raising=False)
-        with pytest.raises(RuntimeError, match="E2B_TEMPLATES_PATH not set"):
+        with pytest.raises(RuntimeError, match="No template source"):
             _resolve_template_id("fix-git", {})
 
     def test_unknown_task_raises_keyerror(self, templates: Path):
         """A task absent from the mapping raises KeyError listing what was tried."""
-        with pytest.raises(KeyError, match="has no matching template"):
+        with pytest.raises(KeyError, match="has no match"):
             _resolve_template_id("never-baked", {"templates_json": str(templates)})
 
     def test_missing_file_raises_filenotfound(self, tmp_path: Path):
@@ -174,7 +174,7 @@ class TestPrebakedE2BEnvironmentInit:
             patch.object(e2b.E2BEnvironment, "__init__", return_value=None) as base_init,
         ):
             env = PrebakedE2BEnvironment(
-                task_id="fix-git",
+                template_key="fix-git",
                 prebaked_e2b_config={"template_id": "tmpl-explicit", "domain": "e2b.acme.dev"},
             )
             assert env._template_id == "tmpl-explicit"
@@ -190,7 +190,7 @@ class TestPrebakedE2BEnvironmentInit:
             patch.object(e2b.E2BEnvironment, "__init__", return_value=None),
         ):
             env = PrebakedE2BEnvironment(
-                task_id="fix-git",
+                template_key="fix-git",
                 prebaked_e2b_config={"templates_json": str(templates)},
             )
         assert env._template_id == "tmpl-resolved"
