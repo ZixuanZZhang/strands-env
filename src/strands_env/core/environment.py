@@ -20,7 +20,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Unpack
+from typing import Any, ClassVar, Generic, Unpack, get_args, get_origin
 
 from opentelemetry.util.types import AttributeValue
 from strands import Agent
@@ -34,14 +34,15 @@ from .models import ModelFactory
 from .types import (
     RewardFunction,
     RolloutResult,
+    Task,
     TaskT,
     TerminationReason,
 )
 
 logger = logging.getLogger(__name__)
 
-#: Type alias for environment factory function (async).
-type AsyncEnvFactory = Callable[[Any], Awaitable["Environment[Any]"]]
+#: Zero-arg async environment factory; the sample arrives via `rollout(task)`.
+type AsyncEnvFactory = Callable[[], Awaitable["Environment[Any]"]]
 
 
 class EnvironmentConfig(TypedDict, total=False):
@@ -63,7 +64,19 @@ class EnvironmentConfig(TypedDict, total=False):
 class Environment(Generic[TaskT]):
     """Base RL rollout environment for Strands agents."""
 
+    task_cls: ClassVar[type[Task]] = Task
     default_system_prompt_path: ClassVar[Path | None] = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Derive `task_cls` from `class XxxEnv(Environment[XxxTask])` — one declaration, no drift."""
+        super().__init_subclass__(**kwargs)
+        # `__orig_bases__` keeps the unerased `Environment[XxxTask]`
+        for base in getattr(cls, "__orig_bases__", ()):
+            origin = get_origin(base)
+            if isinstance(origin, type) and issubclass(origin, Environment):
+                for arg in get_args(base):
+                    if isinstance(arg, type) and issubclass(arg, Task):
+                        cls.task_cls = arg
 
     def __init__(
         self,
@@ -142,6 +155,7 @@ class Environment(Generic[TaskT]):
             trace_attributes=self.trace_attributes or None,
             name=self.agent_name,
         )
+
         # 2. Run the agent loop.
         error = None
         try:
