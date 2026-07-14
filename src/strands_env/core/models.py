@@ -50,6 +50,7 @@ import httpx
 from strands.models import Model
 from strands.models.bedrock import BedrockModel
 from strands.models.openai import OpenAIModel
+from strands.models.openai_responses import OpenAIResponsesModel
 from strands.types.content import Messages
 from strands_sglang import SGLangClient, SGLangModel, get_client, get_tokenizer
 from strands_sglang.tool_parsers import HermesToolParser, ToolParser, get_tool_parser
@@ -193,6 +194,59 @@ def bedrock_model_factory(
 
 
 # ---------------------------------------------------------------------------
+# Bedrock Mantle Model (GPT via OpenAI Responses API on AWS)
+# ---------------------------------------------------------------------------
+
+
+def bedrock_mantle_model_factory(
+    *,
+    model_id: str,
+    region: str = "us-east-2",
+    sampling_params: dict[str, Any] = DEFAULT_SAMPLING_PARAMS,
+    reasoning: dict[str, Any] | None = None,
+) -> ModelFactory:
+    """Return a factory that creates `OpenAIResponsesModel` for GPT models via Bedrock Mantle.
+
+    Args:
+        model_id: Bedrock Mantle model ID (e.g. `"openai.gpt-5.4-2026-03-05"`).
+        region: AWS region hosting Bedrock Mantle (default `"us-east-2"`).
+        sampling_params: Sampling parameters for the model (e.g. `{"max_new_tokens": 16384}`).
+        reasoning: Reasoning configuration (e.g. `{"effort": "high"}`).
+
+    Notes:
+        - Routing is delegated to the SDK's `bedrock_mantle_config`: it derives the regional
+          base URL (`openai.gpt-5.*` → `/openai/v1`, other models → `/v1`) and mints a fresh
+          SigV4 token per request via `aws_bedrock_token_generator`, so long rollouts never
+          outlive the bearer token.
+        - Leaves server-side conversation state at the SDK default (`stateful=False`), matching
+          the other stateless backends: the full transcript is sent each turn and `agent.messages`
+          stays intact for `Environment` observation capture. (With `stateful=True` the SDK clears
+          `agent.messages` for server-managed conversations, which would discard the trajectory.)
+        - Reasoning tokens are NOT retained across turns: the SDK filters `reasoningContent` from
+          Responses API requests because the round-trip metadata (`encrypted_content`) has nowhere
+          to live on the message, so each turn reasons fresh. Fine for single-turn eval; multi-turn
+          reasoning continuity awaits upstream support.
+          See https://github.com/strands-agents/harness-sdk/issues/2014.
+    """
+    sampling_params = dict(sampling_params)
+    if "max_new_tokens" in sampling_params:
+        sampling_params["max_output_tokens"] = sampling_params.pop("max_new_tokens")
+
+    params: dict[str, Any] = {**sampling_params}
+    if reasoning:
+        params["reasoning"] = reasoning
+
+    def factory() -> OpenAIResponsesModel:
+        return OpenAIResponsesModel(
+            model_id=model_id,
+            params=params,
+            bedrock_mantle_config={"region": region},
+        )
+
+    return factory
+
+
+# ---------------------------------------------------------------------------
 # OpenAI Model
 # ---------------------------------------------------------------------------
 
@@ -319,7 +373,7 @@ def kimi_model_factory(
 class ModelConfig:
     """Serializable model configuration."""
 
-    backend: Literal["sglang", "bedrock", "kimi"] = "sglang"
+    backend: Literal["sglang", "bedrock", "bedrock-mantle", "kimi"] = "sglang"
 
     # SGLang
     base_url: str = "http://localhost:30000"
@@ -332,6 +386,9 @@ class ModelConfig:
     region_name: str | None = None
     profile_name: str | None = None
     role_arn: str | None = None
+
+    # Bedrock Mantle (GPT via OpenAI Responses API): reasoning config, e.g. {"effort": "high"}.
+    reasoning: dict[str, Any] | None = None
 
     # Sampling
     sampling_params: dict[str, Any] = field(default_factory=lambda: {"max_new_tokens": 16384})
@@ -376,6 +433,15 @@ def build_model_factory(config: ModelConfig | dict[str, Any]) -> ModelFactory:
             )
             return bedrock_model_factory(
                 model_id=config.model_id, boto_session=boto_session, sampling_params=config.sampling_params
+            )
+        case "bedrock-mantle":
+            if not config.model_id:
+                raise ValueError("bedrock-mantle backend requires --model-id (e.g. 'openai.gpt-5.4-2026-03-05').")
+            return bedrock_mantle_model_factory(
+                model_id=config.model_id,
+                region=config.region_name or "us-east-2",
+                sampling_params=config.sampling_params,
+                reasoning=config.reasoning,
             )
         case "kimi":
             return kimi_model_factory(
